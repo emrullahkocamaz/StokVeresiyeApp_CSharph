@@ -65,7 +65,7 @@ public class QuickSaleDialog : BaseModernForm
     private KryptonButton? _btnOpenParked;
 
     public QuickSaleDialog(string initialOperation = "Satış", long? initialProductId = null) 
-        : base(initialOperation == "Satış" ? "⚡ Hızlı Satış / Fiş Kesme" : "📥 Hızlı Alış / Fatura Girişi", 740, 840)
+        : base(initialOperation == "Satış" ? "⚡ Hızlı Satış / Fiş Kesme" : "📥 Hızlı Alış / Fatura Girişi", 880, 840)
     {
         _cmbOperation.Items.AddRange(new object[] { "Satış", "Alış" });
         _cmbOperation.SelectedItem = initialOperation;
@@ -259,20 +259,34 @@ ORDER BY p.Name");
     {
         if (Controls.Find("actionPanel", true).FirstOrDefault() is Panel actionPanel)
         {
+            actionPanel.Padding = new Padding(12, 12, 12, 12);
+            actionPanel.Height = 65;
+
+            // Sol taraftaki işlem butonları için FlowLayoutPanel (asla sağdaki butonlarla çakışmaz)
+            var flowLeft = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Left,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = new Padding(0)
+            };
+
             // 1. Fişi Askıya Al (Park) Butonu
-            _btnParkCart = UITheme.CreateKryptonButton("⏸️ Fişi Askıya Al", Color.FromArgb(234, 88, 12), Color.White, (s, e) => ParkCurrentSale(), 130, 36);
-            _btnParkCart.Location = new Point(14, 12);
-            actionPanel.Controls.Add(_btnParkCart);
+            _btnParkCart = UITheme.CreateKryptonButton("⏸️ Askıya Al", Color.FromArgb(234, 88, 12), Color.White, (s, e) => ParkCurrentSale(), 110, 36);
+            _btnParkCart.Margin = new Padding(0, 0, 6, 0);
+            flowLeft.Controls.Add(_btnParkCart);
 
             // 2. Bekleyen Fişler Butonu
-            _btnOpenParked = UITheme.CreateKryptonButton("📂 Bekleyen Fişler (0)", Color.FromArgb(79, 70, 229), Color.White, (s, e) => OpenParkedSalesDialog(), 155, 36);
-            _btnOpenParked.Location = new Point(150, 12);
-            actionPanel.Controls.Add(_btnOpenParked);
+            _btnOpenParked = UITheme.CreateKryptonButton("📂 Bekleyen (0)", Color.FromArgb(79, 70, 229), Color.White, (s, e) => OpenParkedSalesDialog(), 125, 36);
+            _btnOpenParked.Margin = new Padding(0, 0, 6, 0);
+            flowLeft.Controls.Add(_btnOpenParked);
 
             // 3. WhatsApp Fişi Butonu
-            var btnWa = UITheme.CreateKryptonButton("📲 WhatsApp Fişi", Color.FromArgb(16, 185, 129), Color.White, (s, e) => SendWhatsAppReceiptClick(), 140, 36);
-            btnWa.Location = new Point(312, 12);
-            actionPanel.Controls.Add(btnWa);
+            var btnWa = UITheme.CreateKryptonButton("📲 WhatsApp", Color.FromArgb(16, 185, 129), Color.White, (s, e) => SendWhatsAppReceiptClick(), 110, 36);
+            btnWa.Margin = new Padding(0, 0, 6, 0);
+            flowLeft.Controls.Add(btnWa);
 
             // 4. Çift Ekran / Müşteri Bilgi Ekranı Butonu
             var btnDisplay = UITheme.CreateKryptonButton("📺 Müşteri Ekranı", Color.FromArgb(14, 165, 233), Color.White, (s, e) =>
@@ -285,9 +299,12 @@ ORDER BY p.Name");
                 }
                 CustomerDisplayForm.ShowOrToggle();
                 CalculateTotal(null, EventArgs.Empty);
-            }, 145, 36);
-            btnDisplay.Location = new Point(460, 12);
-            actionPanel.Controls.Add(btnDisplay);
+            }, 125, 36);
+            btnDisplay.Margin = new Padding(0, 0, 6, 0);
+            flowLeft.Controls.Add(btnDisplay);
+
+            actionPanel.Controls.Add(flowLeft);
+            flowLeft.BringToFront();
         }
     }
 
@@ -296,7 +313,7 @@ ORDER BY p.Name");
         if (_btnOpenParked != null)
         {
             int count = ParkedSalesService.Count;
-            _btnOpenParked.Text = $"📂 Bekleyen Fişler ({count})";
+            _btnOpenParked.Text = $"📂 Bekleyen ({count})";
             var bg = count > 0 ? Color.FromArgb(79, 70, 229) : Color.FromArgb(148, 163, 184);
             _btnOpenParked.StateCommon.Back.Color1 = bg;
             _btnOpenParked.StateCommon.Back.Color2 = bg;

@@ -1640,17 +1640,17 @@ public class MainForm : KryptonForm
         header.Dock = DockStyle.Top;
         header.Height = 65;
 
-        // Filtre ve Buton Paneli (2 Satırlı Geniş ve Ferah Düzen)
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 102, Padding = new Padding(12, 6, 12, 6) };
+        // Filtre ve Buton Paneli (Krypton Ribbon Tarzı Kompakt, Kurumsal ve Tek Satırlı Araç Çubuğu)
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 52, Padding = new Padding(12, 8, 12, 8) };
 
-        // 1. Satır: Arama ve Filtreler
+        // Sol: Filtreler
         var rowFilters = new FlowLayoutPanel
         {
-            Dock = DockStyle.Top,
-            Height = 44,
+            Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            AutoScroll = true
+            AutoScroll = false,
+            Margin = new Padding(0)
         };
 
         _txtProductSearch.Width = 240;
@@ -1669,13 +1669,13 @@ public class MainForm : KryptonForm
         _cmbProductWarehouse.Font = UITheme.RegularFont;
         _cmbProductWarehouse.SelectedIndexChanged += (s, e) => RefreshProducts();
 
-        _chkOnlyCritical.Text = "⚠️ Sadece Kritik Stoktakiler";
+        _chkOnlyCritical.Text = "⚠️ Kritik Stok";
         _chkOnlyCritical.Font = UITheme.RegularFont;
         _chkOnlyCritical.AutoSize = true;
-        _chkOnlyCritical.Margin = new Padding(10, 6, 10, 0);
+        _chkOnlyCritical.Margin = new Padding(8, 6, 8, 0);
         _chkOnlyCritical.CheckedChanged += (s, e) => RefreshProducts();
 
-        var btnRefresh = UITheme.CreateButton("🔄 Yenile", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshProducts(), 90, 32);
+        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshProducts(), 40, 32);
 
         rowFilters.Controls.Add(_txtProductSearch);
         rowFilters.Controls.Add(_cmbProductCategory);
@@ -1683,50 +1683,55 @@ public class MainForm : KryptonForm
         rowFilters.Controls.Add(_chkOnlyCritical);
         rowFilters.Controls.Add(btnRefresh);
 
-        // 2. Satır: İşlem Butonları
+        // Sağ: Kurumsal Aksiyon Butonları
         var rowActions = new FlowLayoutPanel
         {
-            Dock = DockStyle.Top,
-            Height = 44,
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            AutoScroll = true
+            Margin = new Padding(0)
         };
 
-        var btnAdd = UITheme.CreateButton("+ Yeni Ürün Ekle", UITheme.Primary, Color.White, (s, e) => AddProduct(), 135, 34);
-        var btnFastEntry = UITheme.CreateButton("⚡ Hızlı/Seri Giriş", Color.FromArgb(16, 185, 129), Color.White, (s, e) => OpenFastProductEntry(), 135, 34);
-        var btnPriceHistory = UITheme.CreateButton("📜 Fiyat Tarihçesi", Color.FromArgb(59, 130, 246), Color.White, (s, e) => OpenSelectedProductPriceHistory(), 135, 34);
-        var btnBulkDelete = UITheme.CreateButton("🗑️ Çoklu Sil", Color.FromArgb(220, 38, 38), Color.White, (s, e) => DeleteProductsBulkAction(), 110, 34);
-        var btnEdit = UITheme.CreateButton("✏️ Düzenle", UITheme.Secondary, Color.White, (s, e) => EditProduct(), 105, 34);
-        var btnDelete = UITheme.CreateButton("🗑️ Sil", UITheme.Danger, Color.White, (s, e) => DeleteProduct(), 85, 34);
-        var btnHistory = UITheme.CreateButton("📋 Stok Hareketleri", UITheme.Info, Color.White, (s, e) => ViewProductHistory(), 140, 34);
-        var btnBarcode = UITheme.CreateButton("🏷️ Barkod / Etiket", Color.FromArgb(124, 58, 237), Color.White, (s, e) => PrintBarcodeLabelForSelected(), 140, 34);
-        var btnMobileScanner = UITheme.CreateButton("📱 Mobil Barkod", Color.FromArgb(99, 102, 241), Color.White, (s, e) => OpenMobileScanner(), 140, 34);
-        var btnTransfer = UITheme.CreateButton("🔄 Depo Transferi", Color.FromArgb(13, 148, 136), Color.White, (s, e) => OpenWarehouseTransfer(), 145, 34);
-        var btnInvoiceImp = UITheme.CreateButton("📄 E-Fatura Girişi", Color.FromArgb(16, 185, 129), Color.White, (s, e) => OpenInvoiceEntry(), 150, 34);
-        var btnInvoiceMeta = UITheme.CreateButton("📄 Fatura Bilgileri", Color.FromArgb(13, 148, 136), Color.White, (s, e) => OpenSelectedProductInvoiceMetaDialog(), 150, 34);
-        var btnInvoicePdf = UITheme.CreateButton("👁️ Fatura PDF Aç", Color.FromArgb(20, 176, 186), Color.White, (s, e) => OpenSelectedProductInvoicePdf(), 145, 34);
-        var btnExcelImp = UITheme.CreateButton("📥 Excel'den Al", Color.FromArgb(14, 154, 167), Color.White, (s, e) => OpenExcelImport("Urun"), 135, 34);
-        var btnExcelExp = UITheme.CreateButton("📊 Excel'e Aktar", UITheme.Success, Color.White, ExportProductsToExcel, 130, 34);
+        var btnAdd = UITheme.CreateButton("➕ Yeni Ürün", UITheme.Primary, Color.White, (s, e) => AddProduct(), 125, 32);
+        btnAdd.Margin = new Padding(0, 0, 6, 0);
+
+        var btnFastEntry = UITheme.CreateButton("⚡ Hızlı Giriş", Color.FromArgb(16, 185, 129), Color.White, (s, e) => OpenFastProductEntry(), 120, 32);
+        btnFastEntry.Margin = new Padding(0, 0, 6, 0);
+
+        // Diğer Tüm İşlemler İçin Kurumsal Dropdown Menü (Ribbon Tarzı Kompakt)
+        var mnuTools = new ContextMenuStrip();
+        mnuTools.Items.Add("📜 Stok & Fiyat Değişim Tarihçesi", null, (s, e) => OpenSelectedProductPriceHistory());
+        mnuTools.Items.Add("📋 Stok Hareket Detayı", null, (s, e) => ViewProductHistory());
+        mnuTools.Items.Add("🏷️ Barkod & Fiyat Etiketi Bas", null, (s, e) => PrintBarcodeLabelForSelected());
+        mnuTools.Items.Add("🔄 Depolar Arası Transfer", null, (s, e) => OpenWarehouseTransfer());
+        mnuTools.Items.Add(new ToolStripSeparator());
+        mnuTools.Items.Add("📄 E-Fatura Girişi Yap", null, (s, e) => OpenInvoiceEntry());
+        mnuTools.Items.Add("📄 Fatura Bilgileri & Diğer Kalemler", null, (s, e) => OpenSelectedProductInvoiceMetaDialog());
+        mnuTools.Items.Add("👁️ Fatura PDF Belgesini Aç", null, (s, e) => OpenSelectedProductInvoicePdf());
+        mnuTools.Items.Add("📱 Mobil Canlı Barkod Okuyucu", null, (s, e) => OpenMobileScanner());
+        mnuTools.Items.Add(new ToolStripSeparator());
+        mnuTools.Items.Add("📥 Excel'den Ürün Yükle", null, (s, e) => OpenExcelImport("Urun"));
+        mnuTools.Items.Add("📊 Excel Listesi Olarak İndir", null, ExportProductsToExcel);
+        mnuTools.Items.Add(new ToolStripSeparator());
+        mnuTools.Items.Add("🗑️ Seçilen Ürünleri Toplu Sil", null, (s, e) => DeleteProductsBulkAction());
+        mnuTools.Items.Add("🗑️ Ürünü Pasife Al / Sil", null, (s, e) => DeleteProduct());
+
+        var btnTools = UITheme.CreateButton("⚙️ İşlemler ▾", UITheme.Secondary, Color.White, (s, e) =>
+        {
+            if (s is Control btn)
+            {
+                mnuTools.Show(btn, new Point(0, btn.Height));
+            }
+        }, 115, 32);
 
         rowActions.Controls.Add(btnAdd);
         rowActions.Controls.Add(btnFastEntry);
-        rowActions.Controls.Add(btnPriceHistory);
-        rowActions.Controls.Add(btnBulkDelete);
-        rowActions.Controls.Add(btnInvoiceImp);
-        rowActions.Controls.Add(btnInvoiceMeta);
-        rowActions.Controls.Add(btnInvoicePdf);
-        rowActions.Controls.Add(btnMobileScanner);
-        rowActions.Controls.Add(btnEdit);
-        rowActions.Controls.Add(btnDelete);
-        rowActions.Controls.Add(btnHistory);
-        rowActions.Controls.Add(btnBarcode);
-        rowActions.Controls.Add(btnTransfer);
-        rowActions.Controls.Add(btnExcelImp);
-        rowActions.Controls.Add(btnExcelExp);
+        rowActions.Controls.Add(btnTools);
 
-        toolbar.Controls.Add(rowActions);
         toolbar.Controls.Add(rowFilters);
+        toolbar.Controls.Add(rowActions);
 
         // Grid
         var gridContainer = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 0) };

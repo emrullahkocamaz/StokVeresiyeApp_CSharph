@@ -114,6 +114,58 @@ public class BaseModernForm : KryptonForm
         ContentTable.Controls.Add(control, 1, row);
     }
 
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        AdjustSizeToContent();
+    }
+
+    public virtual void AdjustSizeToContent()
+    {
+        try
+        {
+            // ContentTable satırlarının ve elemanlarının toplam yüksekliğini hesapla
+            int tableH = 0;
+            foreach (RowStyle rs in ContentTable.RowStyles)
+            {
+                tableH += (int)rs.Height;
+            }
+            if (tableH == 0 && ContentTable.RowCount > 0)
+            {
+                tableH = ContentTable.RowCount * 40;
+            }
+
+            // Başlık (60) + Buton paneli (65) + Tablo yüksekliği + İç boşluklar (45)
+            int neededHeight = 60 + 65 + tableH + 45;
+
+            var screenArea = Screen.FromControl(this).WorkingArea;
+            int maxHeight = (int)(screenArea.Height * 0.90);
+            int minHeight = 350;
+
+            int finalHeight = Math.Clamp(neededHeight, minHeight, maxHeight);
+            int targetWidth = Math.Min(ClientSize.Width, screenArea.Width - 60);
+
+            ClientSize = new Size(targetWidth, finalHeight);
+
+            // Ekran veya ana pencere ortasına yeniden hizala
+            if (Owner != null && Owner.Visible)
+            {
+                Location = new Point(
+                    Owner.Location.X + (Owner.Width - Width) / 2,
+                    Math.Max(screenArea.Top + 10, Owner.Location.Y + (Owner.Height - Height) / 2)
+                );
+            }
+            else
+            {
+                Location = new Point(
+                    screenArea.Left + (screenArea.Width - Width) / 2,
+                    screenArea.Top + (screenArea.Height - Height) / 2
+                );
+            }
+        }
+        catch { }
+    }
+
     protected static double ParseNumber(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return 0;

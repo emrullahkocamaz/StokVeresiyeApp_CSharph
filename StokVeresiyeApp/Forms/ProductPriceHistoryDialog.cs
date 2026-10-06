@@ -10,8 +10,8 @@ public class ProductPriceHistoryDialog : Form
 {
     private readonly long _productId;
     private readonly Product? _product;
-    private DataGridView _grid;
-    private Label _lblSummary;
+    private DataGridView _grid = new();
+    private Label _lblSummary = new();
 
     public ProductPriceHistoryDialog(long productId)
     {
@@ -19,7 +19,12 @@ public class ProductPriceHistoryDialog : Form
         _product = ProductService.GetById(productId);
 
         Text = $"📜 Stok & Fiyat Değişim Tarihçesi - {_product?.Name ?? "Ürün"}";
-        Size = new Size(1000, 560);
+        
+        var screenArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+        int targetW = Math.Clamp(1000, 750, screenArea.Width - 60);
+        int targetH = Math.Clamp(580, 420, (int)(screenArea.Height * 0.85));
+        ClientSize = new Size(targetW, targetH);
+
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.Sizable;
         BackColor = Color.FromArgb(248, 249, 250);

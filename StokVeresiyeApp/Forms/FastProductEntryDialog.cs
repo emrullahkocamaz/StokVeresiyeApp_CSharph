@@ -29,7 +29,12 @@ public class FastProductEntryDialog : KryptonForm
     public FastProductEntryDialog()
     {
         Text = "⚡ Hızlı & Seri Ürün Girişi (Manuel Ürün Ekleme Ekranı)";
-        Size = new Size(1100, 680);
+        
+        var screenArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+        int targetW = Math.Clamp(1100, 800, screenArea.Width - 50);
+        int targetH = Math.Clamp(680, 480, (int)(screenArea.Height * 0.90));
+        ClientSize = new Size(targetW, targetH);
+
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.Sizable;
         BackColor = Color.FromArgb(248, 250, 252);

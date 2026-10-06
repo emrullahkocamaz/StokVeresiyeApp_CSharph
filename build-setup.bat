@@ -18,8 +18,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-copy /y "%PROJECT_DIR%\Kullanim_Kilavuzu.html" "%PROJECT_DIR%\publish\Kullanim_Kilavuzu.html" >nul
-
 echo.
 echo [2/3] Inno Setup Derleyicisi Kontrol Ediliyor...
 set ISCC="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"

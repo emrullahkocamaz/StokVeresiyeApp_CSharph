@@ -16,7 +16,12 @@ public class AccountStatementDialog : Form
     {
         _accountId = accountId;
         Text = "Cari Hesap Ekstresi ve Hareket Detayı";
-        ClientSize = new Size(1020, 660);
+        
+        var screenArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+        int targetW = Math.Clamp(1020, 750, screenArea.Width - 50);
+        int targetH = Math.Clamp(660, 460, (int)(screenArea.Height * 0.88));
+        ClientSize = new Size(targetW, targetH);
+
         StartPosition = FormStartPosition.CenterParent;
         BackColor = UITheme.Background;
         Font = UITheme.RegularFont;

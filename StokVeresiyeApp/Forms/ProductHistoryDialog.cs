@@ -16,7 +16,12 @@ public class ProductHistoryDialog : Form
     {
         _productId = productId;
         Text = "Ürün Stok Hareket Geçmişi ve Detayı";
-        ClientSize = new Size(1000, 620);
+        
+        var screenArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+        int targetW = Math.Clamp(1000, 750, screenArea.Width - 60);
+        int targetH = Math.Clamp(620, 440, (int)(screenArea.Height * 0.88));
+        ClientSize = new Size(targetW, targetH);
+
         StartPosition = FormStartPosition.CenterParent;
         BackColor = UITheme.Background;
         Font = UITheme.RegularFont;

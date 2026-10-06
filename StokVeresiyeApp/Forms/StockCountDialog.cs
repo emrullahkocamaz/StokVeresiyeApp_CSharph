@@ -16,7 +16,12 @@ public class StockCountDialog : Form
     public StockCountDialog()
     {
         Text = "📋 Depo & Raf Stok Sayımı / Düzeltme Fişi (Stok Eşitleme)";
-        ClientSize = new Size(1100, 680);
+        
+        var screenArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+        int targetW = Math.Clamp(1100, 780, screenArea.Width - 50);
+        int targetH = Math.Clamp(680, 480, (int)(screenArea.Height * 0.90));
+        ClientSize = new Size(targetW, targetH);
+
         StartPosition = FormStartPosition.CenterParent;
         BackColor = UITheme.Background;
         Font = UITheme.RegularFont;

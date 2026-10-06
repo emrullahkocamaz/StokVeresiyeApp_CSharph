@@ -4,8 +4,6 @@ echo [1/3] dotnet publish calistiriliyor...
 dotnet publish "StokVeresiyeApp\StokVeresiyeApp.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "StokVeresiyeApp\publish"
 if errorlevel 1 goto error
 
-copy /y "Kullanim_Kilavuzu.html" "StokVeresiyeApp\publish\Kullanim_Kilavuzu.html" >nul
-
 echo [2/3] Inno Setup ile paketleniyor...
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "StokVeresiyeApp\setup.iss"
 if errorlevel 1 goto error

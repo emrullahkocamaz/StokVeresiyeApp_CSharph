@@ -62,7 +62,6 @@ public class MainForm : KryptonForm
     private Panel _dashHeader = new();
     private CardPanel _dashPnlCustomizer = new();
     private FlowLayoutPanel _dashCardsFlow = new();
-    private CardPanel _dashQuickActions = new();
     private CardPanel _dashPnlSearch = new();
     private TableLayoutPanel _dashSplitTable = new();
     private CardPanel _dashPnlCrit = new();
@@ -70,7 +69,6 @@ public class MainForm : KryptonForm
     private CardPanel _dashPnlRecent = new();
     private ComboBox _cmbDashLayoutMode = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private CheckBox _chkDashCards = new() { Text = "📊 Özet Kartlar", AutoSize = true, Checked = true, Font = UITheme.SmallFont };
-    private CheckBox _chkDashActions = new() { Text = "⚡ Hızlı İşlemler", AutoSize = true, Checked = true, Font = UITheme.SmallFont };
     private CheckBox _chkDashSearch = new() { Text = "🔍 Hızlı Satış Arama", AutoSize = true, Checked = true, Font = UITheme.SmallFont };
     private CheckBox _chkDashCrit = new() { Text = "⚠️ Kritik Stoklar", AutoSize = true, Checked = true, Font = UITheme.SmallFont };
     private CheckBox _chkDashDebtors = new() { Text = "💰 Borçlu Müşteriler", AutoSize = true, Checked = true, Font = UITheme.SmallFont };
@@ -336,78 +334,7 @@ public class MainForm : KryptonForm
         grpDashMain.Items.Add(tripDashMain);
         tabDash.Groups.Add(grpDashMain);
 
-        // --- 2. HIZLI İŞLEMLER GRUBU (En Hızlı Erişilebilir Konum) ---
-        var grpDashPos = new KryptonRibbonGroup { TextLine1 = "⚡ Hızlı İşlemler" };
-        var tripDashPos1 = new KryptonRibbonGroupTriple();
-
-        var btnSaleDash = new KryptonRibbonGroupButton 
-        { 
-            TextLine1 = "⚡ Hızlı Satış", 
-            TextLine2 = "(F3 Kısayol)",
-            ImageLarge = RibbonIconFactory.CreateIcon("quicksale", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("quicksale", 16)
-        };
-        btnSaleDash.Click += (s, e) => OpenQuickSale("Satış");
-
-        var btnCollectDash = new KryptonRibbonGroupButton 
-        { 
-            TextLine1 = "💵 Tahsilat Yap", 
-            TextLine2 = "(F6 Kısayol)",
-            ImageLarge = RibbonIconFactory.CreateIcon("collect", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("collect", 16)
-        };
-        btnCollectDash.Click += (s, e) => { ShowPage(2); AddAccountMovementForSelected("Tahsilat"); };
-
-        var btnDebtDash = new KryptonRibbonGroupButton 
-        { 
-            TextLine1 = "➕ Borç Ekle", 
-            TextLine2 = "(F5 Kısayol)",
-            ImageLarge = RibbonIconFactory.CreateIcon("debt", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("debt", 16)
-        };
-        btnDebtDash.Click += (s, e) => { ShowPage(2); AddAccountMovementForSelected("Satış"); };
-
-        tripDashPos1.Items.Add(btnSaleDash);
-        tripDashPos1.Items.Add(btnCollectDash);
-        tripDashPos1.Items.Add(btnDebtDash);
-        grpDashPos.Items.Add(tripDashPos1);
-
-        var tripDashPos2 = new KryptonRibbonGroupTriple();
-
-        var btnStockInOutDash = new KryptonRibbonGroupButton 
-        { 
-            TextLine1 = "📦 Stok Hareketi", 
-            TextLine2 = "Giriş / Çıkış",
-            ImageLarge = RibbonIconFactory.CreateIcon("stockinout", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("stockinout", 16)
-        };
-        btnStockInOutDash.Click += (s, e) => AddStock();
-
-        var btnNewAccDash = new KryptonRibbonGroupButton 
-        { 
-            TextLine1 = "👥 Yeni Cari", 
-            TextLine2 = "Müşteri / Firma",
-            ImageLarge = RibbonIconFactory.CreateIcon("newaccount", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("newaccount", 16)
-        };
-        btnNewAccDash.Click += (s, e) => AddAccount();
-
-        var btnCountDash = new KryptonRibbonGroupButton 
-        { 
-            TextLine1 = "📋 Stok Sayımı", 
-            TextLine2 = "Depo Eşitleme",
-            ImageLarge = RibbonIconFactory.CreateIcon("stockcount", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("stockcount", 16)
-        };
-        btnCountDash.Click += (s, e) => OpenStockCount();
-
-        tripDashPos2.Items.Add(btnStockInOutDash);
-        tripDashPos2.Items.Add(btnNewAccDash);
-        tripDashPos2.Items.Add(btnCountDash);
-        grpDashPos.Items.Add(tripDashPos2);
-        tabDash.Groups.Add(grpDashPos);
-
-        // --- 3. EKRAN DÜZENİ GRUBU (Ribbon Menüye Taşındı) ---
+        // --- 2. EKRAN DÜZENİ GRUBU (Ribbon Menüye Taşındı) ---
         var grpDashLayout = new KryptonRibbonGroup { TextLine1 = "👁️ Ekran Düzeni" };
         var tripLayout1 = new KryptonRibbonGroupTriple();
 
@@ -1302,28 +1229,6 @@ public class MainForm : KryptonForm
         cardsFlow.Controls.Add(_cardTodayCash);
         cardsFlow.Controls.Add(_cardOverdue);
 
-        // Hızlı Kısayol Aksiyon Butonları
-        var quickActions = new CardPanel { Dock = DockStyle.Top, Height = 65, Padding = new Padding(12, 10, 12, 10), Margin = new Padding(0, 10, 0, 15) };
-        var lblQuick = new Label { Text = "Hızlı İşlemler:", Font = UITheme.TitleFont, ForeColor = UITheme.TextSecondary, Dock = DockStyle.Left, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft };
-        var btnSale = UITheme.CreateButton("⚡ Hızlı Satış Yap", UITheme.Primary, Color.White, (s, e) => OpenQuickSale("Satış"), 140, 36);
-        var btnPayment = UITheme.CreateButton("💵 Tahsilat / Ödeme", UITheme.Success, Color.White, (s, e) => AddAccountMovement(), 150, 36);
-        var btnAddProd = UITheme.CreateButton("+ Yeni Ürün Ekle", UITheme.Secondary, Color.White, (s, e) => AddProduct(), 140, 36);
-        var btnAddStock = UITheme.CreateButton("📦 Stok Giriş / Çıkış", UITheme.Warning, Color.White, (s, e) => AddStock(), 150, 36);
-        var btnAddAcc = UITheme.CreateButton("👥 Yeni Cari Ekle", UITheme.Secondary, Color.White, (s, e) => AddAccount(), 140, 36);
-        var btnCount = UITheme.CreateButton("📋 Stok Sayımı", Color.FromArgb(13, 148, 136), Color.White, (s, e) => OpenStockCount(), 130, 36);
-        var btnClosing = UITheme.CreateButton("🔒 Kasa Gün Sonu (Z)", Color.FromArgb(217, 119, 6), Color.White, (s, e) => OpenDailyCashClosing(), 155, 36);
-
-        var actionFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
-        actionFlow.Controls.Add(lblQuick);
-        actionFlow.Controls.Add(btnSale);
-        actionFlow.Controls.Add(btnPayment);
-        actionFlow.Controls.Add(btnAddProd);
-        actionFlow.Controls.Add(btnAddStock);
-        actionFlow.Controls.Add(btnAddAcc);
-        actionFlow.Controls.Add(btnCount);
-        actionFlow.Controls.Add(btnClosing);
-        quickActions.Controls.Add(actionFlow);
-
         // İki Kolonlu Alt Tablolar Paneli (Kritik Stok & Borçlu Müşteriler)
         var splitTable = new TableLayoutPanel
         {
@@ -1448,20 +1353,19 @@ public class MainForm : KryptonForm
 
         // Dashboard Bölüm Referanslarını Sınıf Seviyesine Ata
         _dashCardsFlow = cardsFlow;
-        _dashQuickActions = quickActions;
         _dashPnlSearch = pnlDashSearch;
         _dashSplitTable = splitTable;
         _dashPnlCrit = pnlCrit;
         _dashPnlDebtors = pnlDebtors;
         _dashPnlRecent = pnlRecent;
 
-        // Görünüm / Widget Ayarları Çubuğu (Kullanıcı İstediği Bölümü Açıp Kapatabilir veya Tek Bir Bölüme Odaklanabilir)
+        // Görünüm / Widget Ayarları Çubuğu
         var pnlCustomizer = new CardPanel 
         { 
             Dock = DockStyle.Top, 
             Height = 44, 
-            Padding = new Padding(10, 6, 10, 6),
-            Margin = new Padding(0, 0, 0, 10)
+            Padding = new Padding(10, 6, 10, 6), 
+            Margin = new Padding(0, 0, 0, 10) 
         };
         var flowCustomizer = new FlowLayoutPanel 
         { 
@@ -1493,14 +1397,12 @@ public class MainForm : KryptonForm
         _cmbDashLayoutMode.SelectedIndexChanged += (s, e) => ApplyDashboardLayout();
 
         _chkDashCards.Margin = new Padding(12, 5, 6, 0);
-        _chkDashActions.Margin = new Padding(6, 5, 6, 0);
         _chkDashSearch.Margin = new Padding(6, 5, 6, 0);
         _chkDashCrit.Margin = new Padding(6, 5, 6, 0);
         _chkDashDebtors.Margin = new Padding(6, 5, 6, 0);
         _chkDashRecent.Margin = new Padding(6, 5, 6, 0);
 
         _chkDashCards.CheckedChanged += (s, e) => ApplyDashboardCustomCheckboxes();
-        _chkDashActions.CheckedChanged += (s, e) => ApplyDashboardCustomCheckboxes();
         _chkDashSearch.CheckedChanged += (s, e) => ApplyDashboardCustomCheckboxes();
         _chkDashCrit.CheckedChanged += (s, e) => ApplyDashboardCustomCheckboxes();
         _chkDashDebtors.CheckedChanged += (s, e) => ApplyDashboardCustomCheckboxes();
@@ -1510,7 +1412,6 @@ public class MainForm : KryptonForm
         flowCustomizer.Controls.Add(_cmbDashLayoutMode);
         flowCustomizer.Controls.Add(new Label { Text = "|", AutoSize = true, Margin = new Padding(8, 4, 8, 0), ForeColor = UITheme.TextMuted });
         flowCustomizer.Controls.Add(_chkDashCards);
-        flowCustomizer.Controls.Add(_chkDashActions);
         flowCustomizer.Controls.Add(_chkDashSearch);
         flowCustomizer.Controls.Add(_chkDashCrit);
         flowCustomizer.Controls.Add(_chkDashDebtors);
@@ -1525,7 +1426,6 @@ public class MainForm : KryptonForm
         _pnlDashboard.Controls.Clear();
         _pnlDashboard.Controls.Add(_dashHeader);
         _pnlDashboard.Controls.Add(_dashCardsFlow);
-        _pnlDashboard.Controls.Add(_dashQuickActions);
         _pnlDashboard.Controls.Add(_dashPnlSearch);
         _pnlDashboard.Controls.Add(_dashSplitTable);
         _pnlDashboard.Controls.Add(_dashPnlRecent);
@@ -1567,15 +1467,14 @@ public class MainForm : KryptonForm
                 if (_cardOverdue != null) _cardOverdue.Width = cardW;
             }
 
-            Control[] items = new Control[]
-            {
+            Control?[] items =
+            [
                 _dashHeader,
                 _dashCardsFlow,
-                _dashQuickActions,
                 _dashPnlSearch,
                 _dashSplitTable,
                 _dashPnlRecent
-            };
+            ];
 
             foreach (var c in items)
             {
@@ -1600,7 +1499,6 @@ public class MainForm : KryptonForm
         if (mode.Contains("Kritik Stoklar"))
         {
             _dashCardsFlow.Visible = false;
-            _dashQuickActions.Visible = false;
             _dashPnlSearch.Visible = false;
             _dashPnlRecent.Visible = false;
             _dashSplitTable.Visible = true;
@@ -1613,7 +1511,6 @@ public class MainForm : KryptonForm
         else if (mode.Contains("Son Finansallar"))
         {
             _dashCardsFlow.Visible = false;
-            _dashQuickActions.Visible = false;
             _dashPnlSearch.Visible = false;
             _dashSplitTable.Visible = false;
             _dashPnlRecent.Visible = true;
@@ -1622,7 +1519,6 @@ public class MainForm : KryptonForm
         else if (mode.Contains("Borçlu Müşteriler"))
         {
             _dashCardsFlow.Visible = false;
-            _dashQuickActions.Visible = false;
             _dashPnlSearch.Visible = false;
             _dashPnlRecent.Visible = false;
             _dashSplitTable.Visible = true;
@@ -1635,7 +1531,6 @@ public class MainForm : KryptonForm
         else if (mode.Contains("Hızlı Ürün Satışı"))
         {
             _dashCardsFlow.Visible = false;
-            _dashQuickActions.Visible = false;
             _dashSplitTable.Visible = false;
             _dashPnlRecent.Visible = false;
             _dashPnlSearch.Visible = true;
@@ -1664,7 +1559,6 @@ public class MainForm : KryptonForm
         }
 
         _dashCardsFlow.Visible = _chkDashCards.Checked;
-        _dashQuickActions.Visible = _chkDashActions.Checked;
         _dashPnlSearch.Visible = _chkDashSearch.Checked;
         _dashPnlCrit.Visible = _chkDashCrit.Checked;
         _dashPnlDebtors.Visible = _chkDashDebtors.Checked;
@@ -1699,7 +1593,7 @@ public class MainForm : KryptonForm
             string cfgDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StokVeresiyeApp");
             Directory.CreateDirectory(cfgDir);
             string file = Path.Combine(cfgDir, "dashboard_layout.txt");
-            string content = $"{_cmbDashLayoutMode.SelectedIndex};{_chkDashCards.Checked};{_chkDashActions.Checked};{_chkDashSearch.Checked};{_chkDashCrit.Checked};{_chkDashDebtors.Checked};{_chkDashRecent.Checked}";
+            string content = $"{_cmbDashLayoutMode.SelectedIndex};{_chkDashCards.Checked};{_chkDashSearch.Checked};{_chkDashCrit.Checked};{_chkDashDebtors.Checked};{_chkDashRecent.Checked}";
             File.WriteAllText(file, content);
         }
         catch { }
@@ -1713,18 +1607,18 @@ public class MainForm : KryptonForm
             if (File.Exists(file))
             {
                 var parts = File.ReadAllText(file).Split(';');
-                if (parts.Length >= 7)
+                if (parts.Length >= 6)
                 {
                     if (int.TryParse(parts[0], out int idx) && idx >= 0 && idx < _cmbDashLayoutMode.Items.Count)
                     {
                         _cmbDashLayoutMode.SelectedIndex = idx;
                     }
                     _chkDashCards.Checked = bool.Parse(parts[1]);
-                    _chkDashActions.Checked = bool.Parse(parts[2]);
-                    _chkDashSearch.Checked = bool.Parse(parts[3]);
-                    _chkDashCrit.Checked = bool.Parse(parts[4]);
-                    _chkDashDebtors.Checked = bool.Parse(parts[5]);
-                    _chkDashRecent.Checked = bool.Parse(parts[6]);
+                    int offset = parts.Length >= 7 ? 1 : 0;
+                    _chkDashSearch.Checked = bool.Parse(parts[2 + offset]);
+                    _chkDashCrit.Checked = bool.Parse(parts[3 + offset]);
+                    _chkDashDebtors.Checked = bool.Parse(parts[4 + offset]);
+                    _chkDashRecent.Checked = bool.Parse(parts[5 + offset]);
                     ApplyDashboardLayout();
                 }
             }
@@ -3554,36 +3448,7 @@ public class MainForm : KryptonForm
         dlg.ShowDialog(this);
     }
 
-    private void OpenUserManual()
-    {
-        try
-        {
-            string htmlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Kullanim_Kilavuzu.html");
-            if (!File.Exists(htmlPath))
-            {
-                // Alternatif üst çalışma klasörü kontrolü
-                string altPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "Kullanim_Kilavuzu.html");
-                if (File.Exists(altPath)) htmlPath = Path.GetFullPath(altPath);
-            }
 
-            if (File.Exists(htmlPath))
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = htmlPath,
-                    UseShellExecute = true
-                });
-            }
-            else
-            {
-                MessageBox.Show("Kullanım kılavuzu dosyası bulunamadı:\n" + htmlPath, "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show("Kılavuz açılamadı: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
 
     private void OnBarcodeScannedFromMobile(string barcode, Product? prod)
     {

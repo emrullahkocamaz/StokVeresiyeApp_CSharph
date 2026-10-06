@@ -16,7 +16,12 @@ public class DueReceivablesDialog : Form
     public DueReceivablesDialog(string initialFilter = "Geçmiş")
     {
         Text = "📅 Vade & Ödeme Sözü Takibi (Vadesi Geçen Alacaklar)";
-        ClientSize = new Size(1180, 680);
+        
+        var screenArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+        int targetW = Math.Clamp(1180, 800, screenArea.Width - 50);
+        int targetH = Math.Clamp(680, 480, (int)(screenArea.Height * 0.90));
+        ClientSize = new Size(targetW, targetH);
+
         StartPosition = FormStartPosition.CenterParent;
         BackColor = UITheme.Background;
         Font = UITheme.RegularFont;

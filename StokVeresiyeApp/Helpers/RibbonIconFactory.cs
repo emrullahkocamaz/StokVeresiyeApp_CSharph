@@ -119,6 +119,21 @@ public static class RibbonIconFactory
             case "excel":
                 DrawExcel(g, size, s);
                 break;
+            case "quickactions":
+                DrawQuickActions(g, size, s);
+                break;
+            case "layout":
+                DrawLayout(g, size, s);
+                break;
+            case "bilensis_logo":
+                DrawBilensisLogo(g, size, s);
+                break;
+            case "stockinout":
+                DrawStockInOut(g, size, s);
+                break;
+            case "refresh":
+                DrawRefresh(g, size, s);
+                break;
             default:
                 DrawGeneric(g, size, s);
                 break;
@@ -595,6 +610,89 @@ public static class RibbonIconFactory
         using var f = new Font("Segoe UI", 11 * s, FontStyle.Bold);
         using var bTxt = new SolidBrush(Color.White);
         g.DrawString("X", f, bTxt, 10 * s, 8 * s);
+    }
+
+    private static void DrawQuickActions(Graphics g, int sz, float s)
+    {
+        // Roket / Şimşekli Hızlı Aksiyon
+        using var bRocket = new SolidBrush(Color.FromArgb(245, 158, 11)); // Canlı Kehribar Sarı/Turuncu
+        PointF[] bolt = new PointF[]
+        {
+            new(17 * s, 3 * s),
+            new(9 * s, 17 * s),
+            new(15 * s, 17 * s),
+            new(12 * s, 29 * s),
+            new(23 * s, 13 * s),
+            new(17 * s, 13 * s),
+            new(20 * s, 3 * s)
+        };
+        g.FillPolygon(bRocket, bolt);
+
+        using var penGlow = new Pen(Color.FromArgb(217, 119, 6), 1.5f * s);
+        g.DrawPolygon(penGlow, bolt);
+    }
+
+    private static void DrawLayout(Graphics g, int sz, float s)
+    {
+        // 4 Parçalı Pencereler / Izgara Düzeni
+        using var b1 = new SolidBrush(Color.FromArgb(59, 130, 246));
+        using var b2 = new SolidBrush(Color.FromArgb(14, 165, 233));
+        using var b3 = new SolidBrush(Color.FromArgb(99, 102, 241));
+        using var b4 = new SolidBrush(Color.FromArgb(168, 85, 247));
+
+        g.FillRectangle(b1, 4 * s, 4 * s, 11 * s, 11 * s);
+        g.FillRectangle(b2, 17 * s, 4 * s, 11 * s, 11 * s);
+        g.FillRectangle(b3, 4 * s, 17 * s, 11 * s, 11 * s);
+        g.FillRectangle(b4, 17 * s, 17 * s, 11 * s, 11 * s);
+    }
+
+    private static void DrawBilensisLogo(Graphics g, int sz, float s)
+    {
+        // Yuvarlatılmış Modern Mavi Gradyan Kart
+        var rect = new RectangleF(2 * s, 2 * s, 28 * s, 28 * s);
+        using var brush = new LinearGradientBrush(rect, Color.FromArgb(30, 58, 138), Color.FromArgb(37, 99, 235), LinearGradientMode.ForwardDiagonal);
+        
+        using var path = new GraphicsPath();
+        float radius = 7 * s;
+        path.AddArc(rect.X, rect.Y, radius * 2, radius * 2, 180, 90);
+        path.AddArc(rect.Right - radius * 2, rect.Y, radius * 2, radius * 2, 270, 90);
+        path.AddArc(rect.Right - radius * 2, rect.Bottom - radius * 2, radius * 2, radius * 2, 0, 90);
+        path.AddArc(rect.X, rect.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
+        path.CloseFigure();
+        g.FillPath(brush, path);
+
+        // Beyaz 'B' Harfi
+        using var font = new Font("Segoe UI", 16 * s, FontStyle.Bold);
+        using var textBrush = new SolidBrush(Color.White);
+        var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+        g.DrawString("B", font, textBrush, new RectangleF(0, 0, sz, sz), sf);
+
+        // Sağ altta yeşil aktiflik / büyüme noktası
+        using var bDot = new SolidBrush(Color.FromArgb(52, 211, 153));
+        g.FillEllipse(bDot, 21 * s, 21 * s, 6 * s, 6 * s);
+    }
+
+    private static void DrawStockInOut(Graphics g, int sz, float s)
+    {
+        // Kutu ve Çift Yönlü Giriş/Çıkış Okları
+        using var penBox = new Pen(Color.FromArgb(217, 119, 6), 2f * s);
+        g.DrawRectangle(penBox, 6 * s, 8 * s, 20 * s, 16 * s);
+
+        using var penIn = new Pen(Color.FromArgb(16, 185, 129), 2.5f * s);
+        penIn.EndCap = LineCap.ArrowAnchor;
+        g.DrawLine(penIn, 12 * s, 3 * s, 12 * s, 13 * s);
+
+        using var penOut = new Pen(Color.FromArgb(239, 68, 68), 2.5f * s);
+        penOut.EndCap = LineCap.ArrowAnchor;
+        g.DrawLine(penOut, 20 * s, 21 * s, 20 * s, 29 * s);
+    }
+
+    private static void DrawRefresh(Graphics g, int sz, float s)
+    {
+        using var pen = new Pen(Color.FromArgb(14, 165, 233), 2.5f * s);
+        g.DrawArc(pen, 6 * s, 6 * s, 20 * s, 20 * s, 30, 280);
+        pen.EndCap = LineCap.ArrowAnchor;
+        g.DrawLine(pen, 20 * s, 5 * s, 26 * s, 7 * s);
     }
 
     private static void DrawGeneric(Graphics g, int sz, float s)

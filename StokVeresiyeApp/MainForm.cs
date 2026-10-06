@@ -336,8 +336,9 @@ public class MainForm : KryptonForm
         grpDashMain.Items.Add(tripDashMain);
         tabDash.Groups.Add(grpDashMain);
 
-        var grpDashPos = new KryptonRibbonGroup { TextLine1 = "Hızlı İşlemler" };
-        var tripDashPos = new KryptonRibbonGroupTriple();
+        // --- 2. HIZLI İŞLEMLER GRUBU (En Hızlı Erişilebilir Konum) ---
+        var grpDashPos = new KryptonRibbonGroup { TextLine1 = "⚡ Hızlı İşlemler" };
+        var tripDashPos1 = new KryptonRibbonGroupTriple();
 
         var btnSaleDash = new KryptonRibbonGroupButton 
         { 
@@ -366,12 +367,118 @@ public class MainForm : KryptonForm
         };
         btnDebtDash.Click += (s, e) => { ShowPage(2); AddAccountMovementForSelected("Satış"); };
 
-        tripDashPos.Items.Add(btnSaleDash);
-        tripDashPos.Items.Add(btnCollectDash);
-        tripDashPos.Items.Add(btnDebtDash);
-        grpDashPos.Items.Add(tripDashPos);
+        tripDashPos1.Items.Add(btnSaleDash);
+        tripDashPos1.Items.Add(btnCollectDash);
+        tripDashPos1.Items.Add(btnDebtDash);
+        grpDashPos.Items.Add(tripDashPos1);
+
+        var tripDashPos2 = new KryptonRibbonGroupTriple();
+
+        var btnStockInOutDash = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "📦 Stok Hareketi", 
+            TextLine2 = "Giriş / Çıkış",
+            ImageLarge = RibbonIconFactory.CreateIcon("stockinout", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("stockinout", 16)
+        };
+        btnStockInOutDash.Click += (s, e) => AddStock();
+
+        var btnNewAccDash = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "👥 Yeni Cari", 
+            TextLine2 = "Müşteri / Firma",
+            ImageLarge = RibbonIconFactory.CreateIcon("newaccount", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("newaccount", 16)
+        };
+        btnNewAccDash.Click += (s, e) => AddAccount();
+
+        var btnCountDash = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "📋 Stok Sayımı", 
+            TextLine2 = "Depo Eşitleme",
+            ImageLarge = RibbonIconFactory.CreateIcon("stockcount", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("stockcount", 16)
+        };
+        btnCountDash.Click += (s, e) => OpenStockCount();
+
+        tripDashPos2.Items.Add(btnStockInOutDash);
+        tripDashPos2.Items.Add(btnNewAccDash);
+        tripDashPos2.Items.Add(btnCountDash);
+        grpDashPos.Items.Add(tripDashPos2);
         tabDash.Groups.Add(grpDashPos);
 
+        // --- 3. EKRAN DÜZENİ GRUBU (Ribbon Menüye Taşındı) ---
+        var grpDashLayout = new KryptonRibbonGroup { TextLine1 = "👁️ Ekran Düzeni" };
+        var tripLayout1 = new KryptonRibbonGroupTriple();
+
+        var btnLayoutStd = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "🌐 Standart Pano", 
+            TextLine2 = "Tüm Bölümler",
+            ImageLarge = RibbonIconFactory.CreateIcon("layout", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("layout", 16)
+        };
+        btnLayoutStd.Click += (s, e) => SetDashboardLayout(0);
+
+        var btnLayoutCrit = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "⚠️ Kritik Stok", 
+            TextLine2 = "Tam Odak",
+            ImageLarge = RibbonIconFactory.CreateIcon("due", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("due", 16)
+        };
+        btnLayoutCrit.Click += (s, e) => SetDashboardLayout(1);
+
+        var btnLayoutDebtors = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "💰 Borçlular", 
+            TextLine2 = "Tam Odak",
+            ImageLarge = RibbonIconFactory.CreateIcon("accounts", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("accounts", 16)
+        };
+        btnLayoutDebtors.Click += (s, e) => SetDashboardLayout(3);
+
+        tripLayout1.Items.Add(btnLayoutStd);
+        tripLayout1.Items.Add(btnLayoutCrit);
+        tripLayout1.Items.Add(btnLayoutDebtors);
+        grpDashLayout.Items.Add(tripLayout1);
+
+        var tripLayout2 = new KryptonRibbonGroupTriple();
+
+        var btnLayoutRecent = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "🕒 Son İşlemler", 
+            TextLine2 = "Tam Odak",
+            ImageLarge = RibbonIconFactory.CreateIcon("statement", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("statement", 16)
+        };
+        btnLayoutRecent.Click += (s, e) => SetDashboardLayout(2);
+
+        var btnLayoutSearch = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "🔍 Hızlı Arama", 
+            TextLine2 = "Tam Odak",
+            ImageLarge = RibbonIconFactory.CreateIcon("quicksale", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("quicksale", 16)
+        };
+        btnLayoutSearch.Click += (s, e) => SetDashboardLayout(4);
+
+        var btnRefreshDash = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "🔄 Verileri Yenile", 
+            TextLine2 = "Canlı Güncelle",
+            ImageLarge = RibbonIconFactory.CreateIcon("refresh", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("refresh", 16)
+        };
+        btnRefreshDash.Click += (s, e) => RefreshDashboard();
+
+        tripLayout2.Items.Add(btnLayoutRecent);
+        tripLayout2.Items.Add(btnLayoutSearch);
+        tripLayout2.Items.Add(btnRefreshDash);
+        grpDashLayout.Items.Add(tripLayout2);
+        tabDash.Groups.Add(grpDashLayout);
+
+        // --- 4. RİSK & ENTEGRASYON GRUBU ---
         var grpDashDue = new KryptonRibbonGroup { TextLine1 = "Risk & Entegrasyon" };
         var tripDashDue = new KryptonRibbonGroupTriple();
 
@@ -1363,10 +1470,10 @@ public class MainForm : KryptonForm
         // Kontrolleri doğrudan Dashboard Paneline Ekle
         _dashHeader = header;
         _dashPnlCustomizer = pnlCustomizer;
+        _dashPnlCustomizer.Visible = false; // Ribbon menüye taşındığı için sayfa içinde yer kaplamaz
 
         _pnlDashboard.Controls.Clear();
         _pnlDashboard.Controls.Add(_dashHeader);
-        _pnlDashboard.Controls.Add(_dashPnlCustomizer);
         _pnlDashboard.Controls.Add(_dashCardsFlow);
         _pnlDashboard.Controls.Add(_dashQuickActions);
         _pnlDashboard.Controls.Add(_dashPnlSearch);
@@ -1379,19 +1486,40 @@ public class MainForm : KryptonForm
         LoadDashboardLayoutPreference();
     }
 
+    private void SetDashboardLayout(int index)
+    {
+        if (index >= 0 && index < _cmbDashLayoutMode.Items.Count)
+        {
+            _cmbDashLayoutMode.SelectedIndex = index;
+        }
+        ShowPage(0);
+        LayoutDashboard();
+    }
+
     private void LayoutDashboard()
     {
         if (_pnlDashboard == null || _pnlDashboard.IsDisposed) return;
         _pnlDashboard.SuspendLayout();
         try
         {
-            int targetW = Math.Max(760, _pnlDashboard.ClientSize.Width - 32);
-            int curY = 14;
+            int targetW = Math.Max(760, _pnlDashboard.ClientSize.Width - 28);
+            int curY = 12;
+
+            // KPI Kartlarını ekran genişliğine göre orantılı paylaştır
+            if (_dashCardsFlow != null && _dashCardsFlow.Visible)
+            {
+                int cardCount = 5;
+                int cardW = Math.Clamp((targetW - 48) / cardCount, 220, 310);
+                if (_cardStockVal != null) _cardStockVal.Width = cardW;
+                if (_cardReceivable != null) _cardReceivable.Width = cardW;
+                if (_cardPayable != null) _cardPayable.Width = cardW;
+                if (_cardTodayCash != null) _cardTodayCash.Width = cardW;
+                if (_cardOverdue != null) _cardOverdue.Width = cardW;
+            }
 
             Control[] items = new Control[]
             {
                 _dashHeader,
-                _dashPnlCustomizer,
                 _dashCardsFlow,
                 _dashQuickActions,
                 _dashPnlSearch,
@@ -1403,12 +1531,12 @@ public class MainForm : KryptonForm
             {
                 if (c == null || !c.Visible) continue;
                 c.Dock = DockStyle.None;
-                c.Location = new Point(14, curY);
+                c.Location = new Point(12, curY);
                 c.Width = targetW;
-                curY += c.Height + 14;
+                curY += c.Height + 12;
             }
 
-            _pnlDashboard.AutoScrollMinSize = new Size(760, curY + 24);
+            _pnlDashboard.AutoScrollMinSize = new Size(760, curY + 20);
         }
         finally
         {

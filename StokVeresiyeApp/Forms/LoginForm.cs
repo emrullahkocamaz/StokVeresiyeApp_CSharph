@@ -105,7 +105,7 @@ public class LoginForm : KryptonForm
             Size = new Size(40, 40),
             Location = new Point(0, 4),
             SizeMode = PictureBoxSizeMode.Zoom,
-            Image = RibbonIconFactory.CreateIcon("dashboard", 40),
+            Image = RibbonIconFactory.CreateIcon("bilensis_logo", 40),
             BackColor = Color.Transparent
         };
         var lblBrand = new Label

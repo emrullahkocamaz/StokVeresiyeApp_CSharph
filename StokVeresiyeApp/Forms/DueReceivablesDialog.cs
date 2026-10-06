@@ -1,6 +1,7 @@
 using System.Data;
 using System.Diagnostics;
 using StokVeresiyeApp.Helpers;
+using StokVeresiyeApp.Models;
 using StokVeresiyeApp.Services;
 
 namespace StokVeresiyeApp.Forms;
@@ -226,6 +227,13 @@ public class DueReceivablesDialog : Form
 
     private void SendWhatsAppReminder()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.DigitalReceipt) && !curUser.HasPermission(UserPermissions.Accounts))
+        {
+            MessageBox.Show("WhatsApp ile borç ve vade hatırlatma yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         if (_grid.SelectedRows.Count == 0)
         {
             MessageBox.Show("Lütfen WhatsApp hatırlatması göndermek istediğiniz müşteriyi tablodan seçiniz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);

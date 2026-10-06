@@ -71,15 +71,23 @@ public static class UserPermissions
     public const string DailyRegister = "DailyRegister";       // Kasa Gün Sonu (Z Raporu Kapatma)
     public const string DigitalReceipt = "DigitalReceipt";     // WhatsApp & SMS Dijital Fiş İletimi
     public const string InvoicePayment = "InvoicePayment";     // Fatura Kısmi Ödeme Yönetimi
+    public const string CustomerDisplay = "CustomerDisplay";   // 📺 Çift Ekran / Müşteri Bilgi Ekranı
+    public const string ScaleBarcode = "ScaleBarcode";         // ⚖️ Elektronik Barkodlu Terazi Yönetimi
+    public const string CloudBackup = "CloudBackup";           // ☁️ Otomatik Bulut & Harici Disk Yedekleme
+    public const string TaxLookup = "TaxLookup";               // 🏢 GİB / VKN / TCKN Otomatik Cari Bilgi Sorgulama
 
     public static readonly Dictionary<string, string> Descriptions = new()
     {
         { QuickSale, "⚡ Hızlı Satış ve Fiş Kesme Modülü" },
+        { CustomerDisplay, "📺 Çift Ekran / Müşteri Bilgi Ekranı (Canlı Kasa Panosu)" },
+        { ScaleBarcode, "⚖️ Elektronik Barkodlu Terazi & Tartılı Ürün Yönetimi" },
         { ParkedSales, "⏸️ Fiş / Sepet Bekletme (Askıya Alma & Çağırma)" },
         { SplitPayment, "💳 Parçalı & Çoklu Tahsilat (Nakit/Kart/Veresiye)" },
         { ProductVariants, "🎨 Ürün Varyant Yönetimi (Renk, Beden, Numara)" },
         { DailyRegister, "🔒 Kasa Gün Sonu (Z Raporu & Kasa Kapatma)" },
-        { DigitalReceipt, "📲 WhatsApp & SMS ile Dijital Fiş İletimi" },
+        { CloudBackup, "☁️ Otomatik Bulut & Harici Disk Yedekleme" },
+        { DigitalReceipt, "📲 WhatsApp & SMS ile Dijital Fiş & Borç Bildirimi" },
+        { TaxLookup, "🏢 GİB / VKN / TCKN Otomatik Cari Bilgi Sorgulama" },
         { InvoiceEntry, "📄 E-Fatura ve Alış Faturası Girişi (XML & PDF)" },
         { InvoicePayment, "💵 Fatura Kısmi ve Tam Ödeme Yönetimi" },
         { Products, "📦 Ürün ve Stok Kartları Yönetimi" },

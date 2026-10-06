@@ -598,6 +598,31 @@ public class MainForm : KryptonForm
         grpCash.Items.Add(tripCash);
         tabSales.Groups.Add(grpCash);
 
+        var grpHardware = new KryptonRibbonGroup { TextLine1 = "POS Donanım" };
+        var tripHardware = new KryptonRibbonGroupTriple();
+
+        var btnCustomerDisplay = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "📺 Müşteri Ekranı", 
+            TextLine2 = "2. Ekran POS",
+            ImageLarge = RibbonIconFactory.CreateIcon("quicksale", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("quicksale", 16)
+        };
+        btnCustomerDisplay.Click += (s, e) =>
+        {
+            var curUser = UserService.CurrentUser;
+            if (curUser != null && !curUser.HasPermission(UserPermissions.CustomerDisplay) && !curUser.HasPermission(UserPermissions.QuickSale))
+            {
+                MessageBox.Show("Bu işlem için 'Çift Ekran / Müşteri Bilgi Ekranı' yetkiniz bulunmuyor.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            CustomerDisplayForm.ShowOrToggle();
+        };
+
+        tripHardware.Items.Add(btnCustomerDisplay);
+        grpHardware.Items.Add(tripHardware);
+        tabSales.Groups.Add(grpHardware);
+
         _ribbon.RibbonTabs.Add(tabSales);
 
         // ==========================================
@@ -992,6 +1017,31 @@ public class MainForm : KryptonForm
         tripSys.Items.Add(btnBackup);
         grpSys.Items.Add(tripSys);
         tabSys.Groups.Add(grpSys);
+
+        var grpCloud = new KryptonRibbonGroup { TextLine1 = "Bulut & Harici" };
+        var tripCloud = new KryptonRibbonGroupTriple();
+
+        var btnCloudBackup = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "☁️ Bulut Yedekle", 
+            TextLine2 = "Google Drive / Zip",
+            ImageLarge = RibbonIconFactory.CreateIcon("closing", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("closing", 16)
+        };
+        btnCloudBackup.Click += (s, e) =>
+        {
+            var curUser = UserService.CurrentUser;
+            if (curUser != null && !curUser.HasPermission(UserPermissions.CloudBackup) && !curUser.IsSuperUser)
+            {
+                MessageBox.Show("Bu işlem için 'Otomatik Bulut Yedekleme' yetkiniz bulunmuyor.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            CloudBackupService.ExecuteBackup(silent: false);
+        };
+
+        tripCloud.Items.Add(btnCloudBackup);
+        grpCloud.Items.Add(tripCloud);
+        tabSys.Groups.Add(grpCloud);
 
         var grpConfig = new KryptonRibbonGroup { TextLine1 = "Yapılandırma" };
         var tripConfig = new KryptonRibbonGroupTriple();
@@ -1959,7 +2009,12 @@ public class MainForm : KryptonForm
         _gridAccounts.CellFormatting += GridAccounts_CellFormatting;
 
         var mnuAcc = new ContextMenuStrip();
-        mnuAcc.Items.Add("📑 Hesap Ekstresi Aç", null, (s, e) => ViewAccountStatement());
+        mnuAcc.Items.Add("📑 Hesap Ekstresi Aç (F10)", null, (s, e) => ViewAccountStatement());
+        mnuAcc.Items.Add("📲 WhatsApp ile Bakiye / Borç Bildir", null, (s, e) => SendWhatsAppForSelected());
+        mnuAcc.Items.Add(new ToolStripSeparator());
+        mnuAcc.Items.Add("🔴 Cariye Borç Yaz (F5)", null, (s, e) => AddAccountMovementForSelected("Satış"));
+        mnuAcc.Items.Add("🟢 Cariden Tahsilat Al (F6)", null, (s, e) => AddAccountMovementForSelected("Tahsilat"));
+        mnuAcc.Items.Add(new ToolStripSeparator());
         mnuAcc.Items.Add("✏️ Cari Kartı Düzenle", null, (s, e) => EditAccount());
         mnuAcc.Items.Add(new ToolStripSeparator());
         mnuAcc.Items.Add("🗑️ Seçilen Carileri Toplu Sil (Çoklu)", null, (s, e) => DeleteAccountsBulkAction());
@@ -3648,15 +3703,60 @@ public class MainForm : KryptonForm
 
     private void SendWhatsAppForSelected()
     {
-        long id = GetSelectedId(_gridAccounts);
-        if (id < 0)
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.DigitalReceipt) && !curUser.HasPermission(UserPermissions.Accounts))
         {
-            MessageBox.Show("Lütfen WhatsApp ekstresi göndermek istediğiniz cariyi tablodan seçiniz.", "Cari Seçilmedi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("WhatsApp ile borç ve bakiye bildirimi yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        using var f = new AccountStatementDialog(id);
-        f.ShowDialog();
+        long id = GetSelectedId(_gridAccounts);
+        if (id <= 0)
+        {
+            MessageBox.Show("Lütfen WhatsApp bildirimi göndermek istediğiniz cariyi tablodan seçiniz.", "Cari Seçilmedi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var acc = AccountService.GetById(id);
+        if (acc == null) return;
+
+        string digitsOnly = new string((acc.Phone ?? "").Where(char.IsDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(digitsOnly))
+        {
+            string inPhone = Microsoft.VisualBasic.Interaction.InputBox($"'{acc.Name}' carisi için kayıtlı telefon bulunamadı. Lütfen cep telefonu giriniz (Örn: 0532 123 45 67):", "WhatsApp Numarası", "");
+            digitsOnly = new string(inPhone.Where(char.IsDigit).ToArray());
+            if (string.IsNullOrWhiteSpace(digitsOnly)) return;
+        }
+
+        if (digitsOnly.Length == 10 && digitsOnly.StartsWith("5")) digitsOnly = "90" + digitsOnly;
+        else if (digitsOnly.Length == 11 && digitsOnly.StartsWith("05")) digitsOnly = "90" + digitsOnly.Substring(1);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Sayın *{acc.Name}*,");
+        sb.AppendLine();
+        if (acc.Balance > 0)
+        {
+            sb.AppendLine($"Bilensis sistemimizde kayıtlı güncel veresiye/açık hesap borç bakiyeniz: *{acc.Balance:N2} ₺*'dir.");
+            sb.AppendLine("Ödemenizi en kısa sürede gerçekleştirmenizi rica eder, hayırlı ve bereketli işler dileriz.");
+        }
+        else if (acc.Balance < 0)
+        {
+            sb.AppendLine($"Bilensis sistemimizde kayıtlı lehinize alacak bakiyeniz: *{Math.Abs(acc.Balance):N2} ₺*'dir.");
+        }
+        else
+        {
+            sb.AppendLine("Bilensis sistemimizde kayıtlı herhangi bir borç veya alacak bakiyeniz bulunmamaktadır. Hesap bakiyeniz sıfırdır.");
+        }
+
+        string url = $"https://wa.me/{digitsOnly}?text={Uri.EscapeDataString(sb.ToString())}";
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"WhatsApp açılamadı: {ex.Message}", "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private void AddStock()

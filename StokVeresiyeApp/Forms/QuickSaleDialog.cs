@@ -273,6 +273,21 @@ ORDER BY p.Name");
             var btnWa = UITheme.CreateKryptonButton("📲 WhatsApp Fişi", Color.FromArgb(16, 185, 129), Color.White, (s, e) => SendWhatsAppReceiptClick(), 140, 36);
             btnWa.Location = new Point(312, 12);
             actionPanel.Controls.Add(btnWa);
+
+            // 4. Çift Ekran / Müşteri Bilgi Ekranı Butonu
+            var btnDisplay = UITheme.CreateKryptonButton("📺 Müşteri Ekranı", Color.FromArgb(14, 165, 233), Color.White, (s, e) =>
+            {
+                var curUser = UserService.CurrentUser;
+                if (curUser != null && !curUser.HasPermission(UserPermissions.CustomerDisplay) && !curUser.HasPermission(UserPermissions.QuickSale))
+                {
+                    MessageBox.Show("Müşteri ekranını açma yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                CustomerDisplayForm.ShowOrToggle();
+                CalculateTotal(null, EventArgs.Empty);
+            }, 145, 36);
+            btnDisplay.Location = new Point(460, 12);
+            actionPanel.Controls.Add(btnDisplay);
         }
     }
 
@@ -591,6 +606,10 @@ ORDER BY p.Name");
 
         double lineTotal = q * price * (1 - disc / 100.0) * (1 + vat / 100.0);
         _lblNetTotal.Text = $"{lineTotal:N2} ₺";
+
+        // Müşteri Bilgi Ekranı (2. Ekran / Customer Display) Canlı Senkronizasyonu
+        string prodName = (_cmbProduct.SelectedItem is DataRowView rv) ? rv["Display"]?.ToString() ?? "" : "";
+        CustomerDisplayForm.UpdateCart(prodName, q, price, lineTotal);
     }
 
     private void SaveClick(object? sender, EventArgs e)
@@ -744,9 +763,17 @@ ORDER BY p.Name");
         var parsed = BarcodeScaleHelper.Parse(barcode);
         DataRow? matchedRow = null;
 
-        // 2. Terazi Barkodu ise: PLU koduna göre ara
+        // 2. Terazi Barkodu ise: Yetki kontrolü ve PLU koduna göre ara
         if (parsed.IsScaleBarcode)
         {
+            var curUser = UserService.CurrentUser;
+            if (curUser != null && !curUser.HasPermission(UserPermissions.ScaleBarcode) && !curUser.HasPermission(UserPermissions.QuickSale))
+            {
+                MessageBox.Show("Elektronik barkodlu terazi ve tartılı ürün satışı yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _txtBarcodeScan.Text = string.Empty;
+                return;
+            }
+
             foreach (DataRow row in dtProducts.Rows)
             {
                 string code = row["Code"]?.ToString()?.Trim() ?? "";

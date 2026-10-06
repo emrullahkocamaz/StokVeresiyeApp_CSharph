@@ -245,7 +245,26 @@ public class DailyCashClosingDialog : BaseModernForm
             };
 
             DailyRegisterService.SaveClosing(closing);
-            MessageBox.Show("Kasa Gün Sonu başarıyla kapatıldı ve Z Raporu kaydedildi!", "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            // Otomatik Bulut / Harici Disk Veritabanı Yedeği
+            var curUser = UserService.CurrentUser;
+            if (curUser == null || curUser.HasPermission(UserPermissions.CloudBackup) || curUser.IsSuperUser)
+            {
+                var backupRes = CloudBackupService.ExecuteBackup(silent: true);
+                if (backupRes.Success)
+                {
+                    MessageBox.Show($"Kasa Gün Sonu başarıyla kapatıldı ve Z Raporu arşivlendi!\n\n☁️ Otomatik Bulut/Disk Veritabanı Yedeği Alındı:\n{backupRes.BackupFilePath}", "Gün Sonu & Yedekleme Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show("Kasa Gün Sonu başarıyla kapatıldı ve Z Raporu kaydedildi!", "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            else
+            {
+                MessageBox.Show("Kasa Gün Sonu başarıyla kapatıldı ve Z Raporu kaydedildi!", "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+
             RefreshHistoryGrid();
             DialogResult = DialogResult.OK;
             Close();

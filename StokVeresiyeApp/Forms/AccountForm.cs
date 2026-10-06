@@ -2,6 +2,8 @@ using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Forms;
 using StokVeresiyeApp.Helpers;
+using StokVeresiyeApp.Models;
+using StokVeresiyeApp.Services;
 
 namespace StokVeresiyeApp.Forms;
 
@@ -39,7 +41,55 @@ public class AccountForm : BaseModernForm
         AddRow("Telefon No", _txtPhone);
         AddRow("E-Posta Adresi", _txtEmail);
         AddRow("Vergi Dairesi", _txtTaxOffice);
-        AddRow("Vergi / TC Kimlik No", _txtTaxNumber);
+
+        // Vergi / TC Kimlik No ve GİB Otomatik Sorgulama Butonu
+        var pnlTax = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+        pnlTax.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        pnlTax.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130f));
+        pnlTax.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+        var btnTaxLookup = UITheme.CreateKryptonButton("🔍 GİB Sorgula", Color.FromArgb(13, 148, 136), Color.White, async (s, e) =>
+        {
+            var curUser = UserService.CurrentUser;
+            if (curUser != null && !curUser.HasPermission(UserPermissions.TaxLookup) && !curUser.HasPermission(UserPermissions.Accounts))
+            {
+                MessageBox.Show("GİB / VKN / TCKN cari bilgi sorgulama yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string taxNo = _txtTaxNumber.Text.Trim();
+            if (string.IsNullOrWhiteSpace(taxNo))
+            {
+                MessageBox.Show("Lütfen önce 10 haneli Vergi Kimlik No (VKN) veya 11 haneli T.C. Kimlik No giriniz.", "Bilgi Gerekli", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _txtTaxNumber.Focus();
+                return;
+            }
+
+            var res = await TaxLookupService.LookupAsync(taxNo);
+            if (res.Success)
+            {
+                if (string.IsNullOrWhiteSpace(_txtName.Text) || _txtName.Text == "Yeni Cari")
+                {
+                    _txtName.Text = res.Title;
+                }
+                if (!string.IsNullOrWhiteSpace(res.TaxOffice))
+                {
+                    _txtTaxOffice.Text = res.TaxOffice;
+                }
+                MessageBox.Show($"{res.Message}\n\nUnvan: {res.Title}\nVergi Dairesi: {res.TaxOffice}\nŞehir: {res.City}", "GİB Mükellef Bilgisi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show(res.Message, "Doğrulama Uyarısı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }, 125, 34);
+
+        _txtTaxNumber.Dock = DockStyle.Fill;
+        _txtTaxNumber.CueHint.CueHintText = "10 haneli VKN veya 11 haneli TCKN";
+        pnlTax.Controls.Add(_txtTaxNumber, 0, 0);
+        pnlTax.Controls.Add(btnTaxLookup, 1, 0);
+
+        AddRow("Vergi / TC Kimlik No", pnlTax, 40);
         AddRow("Açık Hesap / Kredi Limiti (₺)", _txtLimit);
         AddRow("Kara Liste Durumu", _chkBlacklist);
         AddRow("Adres", _txtAddress, 70);

@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BİLENSİS ERP - Kullanım Kılavuzu &amp; Hızlı Başlangıç Rehberi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0284c7;
+            --primary-dark: #0369a1;
+            --primary-light: #e0f2fe;
+            --secondary: #6366f1;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #0f172a;
+            --dark-surface: #1e293b;
+            --card-bg: #ffffff;
+            --bg: #f8fafc;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.04);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            line-height: 1.6;
+            scroll-behavior: smooth;
+        }
+
+        /* Üst Header / Kahraman Bölümü */
+        header.hero {
+            background: linear-gradient(135deg, #0b1121 0%, #0f172a 60%, #1e293b 100%);
+            color: #ffffff;
+            padding: 40px 24px 30px;
+            border-bottom: 2px solid #38bdf8;
+            position: relative;
+            overflow: hidden;
+        }
+
+        header.hero::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -10%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.15) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .hero-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-title h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .hero-title h1 span.badge-vers {
+            font-size: 0.85rem;
+            background: rgba(56, 189, 248, 0.2);
+            color: #38bdf8;
+            padding: 4px 10px;
+            border-radius: 20px;
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            font-weight: 600;
+        }
+
+        .hero-title p {
+            color: #94a3b8;
+            margin-top: 6px;
+            font-size: 1.05rem;
+        }
+
+        .hero-search {
+            position: relative;
+            min-width: 320px;
+        }
+
+        .hero-search input {
+            width: 100%;
+            padding: 12px 18px 12px 42px;
+            border-radius: 30px;
+            border: 1px solid #334155;
+            background: rgba(15, 23, 42, 0.8);
+            color: #ffffff;
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .hero-search input:focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+            background: #0f172a;
+        }
+
+        .hero-search .search-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+            font-size: 1.1rem;
+        }
+
+        /* Ana Düzen (Sidebar + İçerik) */
+        .main-wrapper {
+            max-width: 1240px;
+            margin: 30px auto;
+            padding: 0 20px;
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 30px;
+            align-items: start;
+        }
+
+        /* Sol Navigasyon Menüsü (Sticky) */
+        aside.nav-sidebar {
+            background: var(--card-bg);
+            border-radius: var(--radius-md);
+            padding: 20px 14px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            position: sticky;
+            top: 24px;
+            max-height: calc(100vh - 48px);
+            overflow-y: auto;
+        }
+
+        aside.nav-sidebar h3 {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            padding: 0 10px 12px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 10px;
+        }
+
+        .nav-links {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .nav-links a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            color: var(--text-main);
+            text-decoration: none;
+            font-size: 0.92rem;
+            font-weight: 500;
+            border-radius: var(--radius-sm);
+            transition: all 0.2s ease;
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            background: var(--primary-light);
+            color: var(--primary-dark);
+            font-weight: 600;
+            transform: translateX(3px);
+        }
+
+        .nav-links a .nav-icon {
+            font-size: 1.1rem;
+        }
+
+        /* Sağ İçerik Alanı */
+        main.content-area {
+            display: flex;
+            flex-direction: column;
+            gap: 36px;
+        }
+
+        /* Modül Kartları */
+        .section-card {
+            background: var(--card-bg);
+            border-radius: var(--radius-lg);
+            padding: 32px 36px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            transition: box-shadow 0.2s ease;
+        }
+
+        .section-card:hover {
+            box-shadow: var(--shadow-lg);
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 16px;
+            margin-bottom: 22px;
+        }
+
+        .section-header .title-group {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .section-header .icon-badge {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+        }
+
+        .section-header h2 {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--dark);
+        }
+
+        .section-header .tag-badge {
+            font-size: 0.78rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        /* Renk Temaları */
+        .theme-blue .icon-badge { background: #e0f2fe; color: #0284c7; }
+        .theme-blue .tag-badge { background: #e0f2fe; color: #0369a1; }
+        .theme-green .icon-badge { background: #dcfce7; color: #16a34a; }
+        .theme-green .tag-badge { background: #dcfce7; color: #15803d; }
+        .theme-purple .icon-badge { background: #f3e8ff; color: #9333ea; }
+        .theme-purple .tag-badge { background: #f3e8ff; color: #7e22ce; }
+        .theme-amber .icon-badge { background: #fef3c7; color: #d97706; }
+        .theme-amber .tag-badge { background: #fef3c7; color: #b45309; }
+        .theme-rose .icon-badge { background: #ffe4e6; color: #e11d48; }
+        .theme-rose .tag-badge { background: #ffe4e6; color: #be123c; }
+
+        /* Kılavuz Metinleri ve Adımlar */
+        p.desc {
+            font-size: 0.98rem;
+            color: #475569;
+            margin-bottom: 20px;
+            line-height: 1.65;
+        }
+
+        .steps-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin: 20px 0;
+        }
+
+        .step-item {
+            display: flex;
+            gap: 16px;
+            background: #f8fafc;
+            border: 1px solid #edf2f7;
+            padding: 16px 20px;
+            border-radius: var(--radius-md);
+            align-items: flex-start;
+        }
+
+        .step-number {
+            background: var(--dark);
+            color: #ffffff;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.88rem;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .step-content h4 {
+            font-size: 1.02rem;
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 5px;
+        }
+
+        .step-content p {
+            font-size: 0.92rem;
+            color: var(--text-muted);
+            line-height: 1.55;
+        }
+
+        /* Bilgi / İpucu Kutuları */
+        .callout {
+            border-left: 4px solid var(--primary);
+            background: #f0f9ff;
+            padding: 16px 20px;
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            margin: 20px 0;
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+        }
+
+        .callout.tip {
+            border-left-color: var(--success);
+            background: #f0fdf4;
+        }
+
+        .callout.warning {
+            border-left-color: var(--warning);
+            background: #fffbeb;
+        }
+
+        .callout-icon {
+            font-size: 1.3rem;
+            flex-shrink: 0;
+        }
+
+        .callout-body strong {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--dark);
+            font-size: 0.95rem;
+        }
+
+        .callout-body {
+            font-size: 0.9rem;
+            color: #475569;
+        }
+
+        /* Kısayol Tuşları Grid */
+        .shortcuts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 14px;
+            margin-top: 16px;
+        }
+
+        .shortcut-card {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            padding: 14px 18px;
+            border-radius: var(--radius-md);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+        }
+
+        .shortcut-card span.action {
+            font-size: 0.92rem;
+            font-weight: 500;
+            color: var(--dark);
+        }
+
+        kbd {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-bottom: 2px solid #94a3b8;
+            color: #0f172a;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        /* Tablolar */
+        .guide-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 18px 0;
+            font-size: 0.92rem;
+        }
+
+        .guide-table th {
+            background: #f8fafc;
+            color: #475569;
+            text-align: left;
+            padding: 12px 16px;
+            border-bottom: 2px solid var(--border);
+            font-weight: 600;
+        }
+
+        .guide-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            color: #334155;
+        }
+
+        .guide-table tr:hover td {
+            background: #f8fafc;
+        }
+
+        /* Footer */
+        footer {
+            background: #0f172a;
+            color: #94a3b8;
+            text-align: center;
+            padding: 30px 20px;
+            margin-top: 60px;
+            border-top: 1px solid #1e293b;
+            font-size: 0.9rem;
+        }
+
+        footer strong {
+            color: #ffffff;
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .main-wrapper {
+                grid-template-columns: 1fr;
+            }
+            aside.nav-sidebar {
+                position: relative;
+                top: 0;
+                max-height: none;
+            }
+            .hero-search {
+                width: 100%;
+            }
+        }
+
+        @media print {
+            aside.nav-sidebar, .hero-search {
+                display: none;
+            }
+            .main-wrapper {
+                grid-template-columns: 1fr;
+            }
+            .section-card {
+                box-shadow: none;
+                border: 1px solid #ccc;
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ÜST BAŞLIK ALANI -->
+    <header class="hero">
+        <div class="hero-container">
+            <div class="hero-title">
+                <h1>BİLENSİS ERP <span class="badge-vers">Güncel Sürüm</span></h1>
+                <p>Kullanıcı Odaklı Pratik Kullanım Kılavuzu &amp; Hızlı İşlem Rehberi</p>
+            </div>
+            <div class="hero-search">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="manualSearch" placeholder="Kılavuzda arayın (Örn: fiş bekletme, e-fatura)..." onkeyup="filterGuide()">
+            </div>
+        </div>
+    </header>
+
+    <div class="main-wrapper">
+        <!-- SOL HIZLI MENÜ -->
+        <aside class="nav-sidebar">
+            <h3>Kılavuz İçeriği</h3>
+            <ul class="nav-links">
+                <li><a href="#quick-sale"><span class="nav-icon">⚡</span> Hızlı Satış &amp; Fiş</a></li>
+                <li><a href="#parked-sales"><span class="nav-icon">⏸️</span> Fiş / Sepet Bekletme</a></li>
+                <li><a href="#split-payment"><span class="nav-icon">💳</span> Parçalı Tahsilat</a></li>
+                <li><a href="#variants"><span class="nav-icon">🎨</span> Varyant Yönetimi</a></li>
+                <li><a href="#daily-closing"><span class="nav-icon">🔒</span> Kasa Gün Sonu (Z)</a></li>
+                <li><a href="#digital-receipt"><span class="nav-icon">📲</span> WhatsApp Dijital Fiş</a></li>
+                <li><a href="#invoices"><span class="nav-icon">📄</span> E-Fatura Girişi &amp; Takip</a></li>
+                <li><a href="#invoice-payments"><span class="nav-icon">💵</span> Fatura Kısmi Ödeme</a></li>
+                <li><a href="#products-stock"><span class="nav-icon">📦</span> Stok &amp; Sayım &amp; SKT</a></li>
+                <li><a href="#accounts"><span class="nav-icon">👥</span> Cari &amp; Veresiye</a></li>
+                <li><a href="#mobile-scanner"><span class="nav-icon">📱</span> Mobil Canlı Barkod</a></li>
+                <li><a href="#telegram"><span class="nav-icon">🤖</span> Telegram Cep Takip</a></li>
+                <li><a href="#shortcuts"><span class="nav-icon">⌨️</span> Klavye Kısayolları</a></li>
+            </ul>
+        </aside>
+
+        <!-- SAĞ İÇERİK ALANI -->
+        <main class="content-area">
+
+            <!-- 1. HIZLI SATIŞ VE FİŞ KESME -->
+            <section id="quick-sale" class="section-card theme-blue">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">⚡</div>
+                        <div>
+                            <h2>Hızlı Satış ve Fiş Kesme</h2>
+                            <p class="desc" style="margin-bottom:0;">Kasada bekleme yapmadan saniyeler içinde perakende veya veresiye satış yapın.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Kasa Modülü</span>
+                </div>
+
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Ürün Seçimi &amp; Barkod Okutma</h4>
+                            <p>Barkod okuyucunuzla doğrudan ürünün barkodunu okutun veya <strong>F2</strong> tuşuna basarak ürün arama kutusuna ürün adının birkaç harfini yazıp Enter'a basın.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Müşteri ve Fiyat Seçimi</h4>
+                            <p>Satış peşin ise cariyi <em>(Perakende / Peşin Müşteri)</em> olarak bırakın. Eğer veresiye bir müşteriyse açılır listeden müşteriyi seçin. Müşterinin kayıtlı iskonto oranı varsa otomatik düşülür.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Ödeme Yöntemi ve Tamamlama</h4>
+                            <p>Nakit, Kredi Kartı, Havale veya Veresiye yöntemlerinden birini seçin. Ardından <strong>F3 (Kaydet / Tamamla)</strong> butonuna basarak satışı sonlandırın. İsteğe bağlı olarak termal fiş yazdırılır.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="callout tip">
+                    <div class="callout-icon">💡</div>
+                    <div class="callout-body">
+                        <strong>Gramajlı / Terazi Barkodu Desteği</strong>
+                        Manav, kasap veya şarküteri gibi terazi barkodları (27 veya 28 ile başlayanlar) sistem tarafından otomatik çözülerek ürün ve gramaj hesabı doğrudan yapılır.
+                    </div>
+                </div>
+            </section>
+
+            <!-- 2. FİŞ / SEPET BEKLETME (PARK ETME) -->
+            <section id="parked-sales" class="section-card theme-purple">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">⏸️</div>
+                        <div>
+                            <h2>Fiş / Sepet Bekletme (Askıya Alma)</h2>
+                            <p class="desc" style="margin-bottom:0;">Kasada müşteri cüzdanını ararken veya reyonu dolaşırken sepeti askıya alıp diğer müşteriye geçin.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Piyasa Standardı</span>
+                </div>
+
+                <p class="desc">Yoğun kasa kuyruklarında müşteri alışverişine devam etmek istediğinde mevcut sepeti silmek zorunda kalmazsınız:</p>
+
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Sepeti Askıya Alın</h4>
+                            <p>Hızlı satış ekranının üst kısmında bulunan turuncu renkli <strong>"⏸️ Sepeti Askıya Al (Beklet)"</strong> butonuna tıklayın. Sepet anında güvenle hafızaya alınır ve form yeni müşteri için tertemiz açılır.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Diğer Müşterilerin Satışını Yapın</h4>
+                            <p>Arkadaki müşterilerin satışlarını normal şekilde tamamlayın. Askıya alınan sepetler hiçbir şekilde kaybolmaz.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Bekleyen Fişi Tek Tıkla Geri Yükleyin</h4>
+                            <p>Önceki müşteri kasaya döndüğünde <strong>"📂 Bekleyen Fişler (Adet)"</strong> butonuna tıklayın. İlgili müşteriyi seçip <em>"Fişi Kasaya Yükle"</em> butonuna bastığınızda tüm ürünler ve tutarlar anında ekrana geri gelir.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. PARÇALI & ÇOKLU TAHSİLAT -->
+            <section id="split-payment" class="section-card theme-green">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">💳</div>
+                        <div>
+                            <h2>Parçalı / Çoklu Tahsilat (Split Payment)</h2>
+                            <p class="desc" style="margin-bottom:0;">Tek bir satışın bedelini birden fazla ödeme aracıyla tahsil edin.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Gelişmiş Finans</span>
+                </div>
+
+                <p class="desc">Müşteri ödemesinin bir kısmını nakit, kalanını kredi kartı veya bir kısmını veresiye yapmak istediğinde kullanılır:</p>
+
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Parçalı Tahsilat Ekranını Açın</h4>
+                            <p>Ödeme Yöntemi seçeneğinden <strong>"💳 Parçalı / Çoklu Ödeme (Split)"</strong> seçeneğini seçtiğinizde veya butona tıkladığınızda otomatik dağıtım penceresi açılır.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Tutarları Dağıtın</h4>
+                            <p>Örneğin 1.000 ₺'lik tutar için Nakit kutusuna 400 ₺, Kredi Kartı kutusuna 600 ₺ yazabilirsiniz. Sistem kalan tutarı canlı hesaplar ve tutar sıfırlandığında onay vermenizi sağlar.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Kasaya ve Bankaya Otomatik Dağılım</h4>
+                            <p>Satış onaylandığında Nakit tutar fiziksel kasa hareketine, Kredi Kartı tutarı banka/POS hareketine otomatik olarak ayrı ayrı yansır.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. VARYANT YÖNETİMİ -->
+            <section id="variants" class="section-card theme-purple">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">🎨</div>
+                        <div>
+                            <h2>Ürün Varyant Yönetimi (Renk, Beden, Model)</h2>
+                            <p class="desc" style="margin-bottom:0;">Tek bir ana ürün kartı altında birden fazla renk, beden ve modele özel stok ve barkod tutun.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Stok Yönetimi</span>
+                </div>
+
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Varyant Tanımlama</h4>
+                            <p>Ürünler sayfasında bir ürünü düzenlerken <strong>"🎨 Renk / Beden Varyantları"</strong> butonuna basın. Açılan pencerede varyant adını (Örn: <em>Siyah / L</em> veya <em>42 Numara</em>), varyanta özel barkodu ve fiyat farkını girip kaydedin.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Kasada Varyantlı Satış</h4>
+                            <p>Hızlı satışta varyanta özel barkod okutulduğunda ürün ve o ürünün bedeni/rengi otomatik seçilir; doğru stoktan düşülür.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 5. KASA GÜN SONU VE Z RAPORU -->
+            <section id="daily-closing" class="section-card theme-amber">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">🔒</div>
+                        <div>
+                            <h2>Kasa Gün Sonu &amp; Z Raporu Kapatma</h2>
+                            <p class="desc" style="margin-bottom:0;">Gün bitiminde kasadaki nakit, kredi kartı ve veresiye hareketlerini tek tuşla kilitleyin.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Kasa Güvenliği</span>
+                </div>
+
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Gün Sonu Ekranını Açın</h4>
+                            <p>Sol menüden veya Dashboard hızlı işlemlerden <strong>"🔒 Kasa Gün Sonu (Z)"</strong> butonuna tıklayın.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Fiziksel Kasa Sayımını Girin</h4>
+                            <p>Sistem o günkü toplam nakit satış, kredi kartı tahsilatları ve masraf çıkışlarını otomatik listeler. Kasada saydığınız gerçek nakit tutarı yazın; sistem otomatik kasa farkını (+/-) gösterir.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Z Raporu Alın &amp; Kasayı Kapatın</h4>
+                            <p><strong>"🔒 Kasayı Kapat &amp; Z Raporu Üret"</strong> butonuna basarak gün sonunu resmileştirin. İsterseniz Z Raporunu termal fiş veya A4 olarak yazdırın.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 6. WHATSAPP DİJİTAL FİŞ -->
+            <section id="digital-receipt" class="section-card theme-green">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">📲</div>
+                        <div>
+                            <h2>WhatsApp &amp; SMS ile Dijital Fiş Gönderimi</h2>
+                            <p class="desc" style="margin-bottom:0;">Termal kağıt harcamadan satış fişini müşterinin telefonuna WhatsApp üzerinden iletin.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Modern &amp; Çevreci</span>
+                </div>
+
+                <p class="desc">Satış tamamlandıktan sonra veya satış esnasında <strong>"📲 WhatsApp Fişi Gönder"</strong> butonuna basarak müşterinin telefonuna şık formatlı, ürün kalemlerini ve bakiye durumunu içeren dijital bilgi fişi gönderebilirsiniz.</p>
+            </section>
+
+            <!-- 7. E-FATURA VE ALIŞ FATURALARI -->
+            <section id="invoices" class="section-card theme-blue">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">📄</div>
+                        <div>
+                            <h2>E-Fatura Girişi &amp; PDF / XML Ayrıştırma</h2>
+                            <p class="desc" style="margin-bottom:0;">Tedarikçiden gelen PDF veya XML e-faturaları sisteme yükleyin, ürünleri tek tıkla depoya işleyin.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Otomasyon</span>
+                </div>
+
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Fatura Belgesini Seçin</h4>
+                            <p><strong>"📄 E-Fatura Girişi"</strong> ekranından PDF veya XML faturanızı seçin. Fatura numarası, tedarikçi, tarih ve satırlardaki tüm ürünler, miktar, iskonto ve KDV oranlarıyla birlikte tabloya dökülür.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Stoğa Otomatik Aktarım</h4>
+                            <p>Faturada yer alan ürünler stokta yoksa yeni ürün kartı olarak açılır, varsa depo mevcut stokları ve alış fiyatları anında güncellenir.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 8. FATURA KISMİ ÖDEME -->
+            <section id="invoice-payments" class="section-card theme-amber">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">💵</div>
+                        <div>
+                            <h2>Fatura Kısmi ve Tam Ödeme Yönetimi</h2>
+                            <p class="desc" style="margin-bottom:0;">Faturaların tamamını veya bir kısmını ödeyin, faturadan ne kadar düşüldüğünü ve kalanı görün.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Finans Takibi</span>
+                </div>
+
+                <p class="desc"><strong>Kasa &amp; Finans</strong> sayfasındaki <strong>"📄 Fatura ve Kısmi Ödeme Takibi"</strong> sekmesinde:</p>
+                <ul style="margin-left: 20px; color: var(--text-muted); line-height: 1.8;">
+                    <li>Tüm alış ve satış faturaları listelenir.</li>
+                    <li>Alt barda toplam fatura tutarı, ödenen toplam ve kalan bakiye net olarak gösterilir.</li>
+                    <li>Bir faturaya çift tıklayarak veya <strong>"💵 Ödeme / Tahsilat Yap"</strong> butonuna basarak kısmi ödeme yapabilirsiniz (Örn: 5.000 ₺'lik faturaya 2.000 ₺ ödeme girilirse kalan 3.000 ₺ olarak güncellenir).</li>
+                </ul>
+            </section>
+
+            <!-- 9. STOK, SAYIM VE SKT -->
+            <section id="products-stock" class="section-card theme-rose">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">📦</div>
+                        <div>
+                            <h2>Stok, Sayım, SKT ve Parti/Lot Takibi</h2>
+                            <p class="desc" style="margin-bottom:0;">Kritik stok uyarıları, son kullanma tarihi yaklaşan ürünler ve depo sayımları.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Depo &amp; Kalite</span>
+                </div>
+
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Kritik Stok Bildirimleri</h4>
+                            <p>Stok miktarı belirlenen kritik seviyenin altına düştüğünde sistem Kontrol Panelinde ve üst bildirim zilinde kırmızı uyarı verir.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>SKT (Son Kullanma Tarihi) Takibi</h4>
+                            <p>Gıda, ilaç veya kozmetik ürünlerinde son kullanma tarihine 30 günden az kalan ürünler sarı, günü geçmiş ürünler kırmızı olarak renklenir.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Depo Stok Sayımı</h4>
+                            <p><strong>"📋 Stok Sayımı"</strong> modülü ile raftaki fiili adetleri okutarak sistem stoğuyla mutabakat yapabilir, eksik/fazla fire fişlerini tek tıkla oluşturabilirsiniz.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 10. CARİ VE VERESİYE -->
+            <section id="accounts" class="section-card theme-purple">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">👥</div>
+                        <div>
+                            <h2>Cari &amp; Veresiye Yönetimi</h2>
+                            <p class="desc" style="margin-bottom:0;">Müşteri ve tedarikçilerin borç/alacak bakiyeleri, ekstreleri ve vade takibi.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Müşteri İlişkileri</span>
+                </div>
+
+                <p class="desc">Müşterilerinize bakiye limiti koyabilir, borcunu geciktirenleri <strong>Kara Liste</strong>'ye alarak kasada yetkisiz satış yapılmasını engelleyebilirsiniz. Tek tıkla hesap ekstresi görüntüleyebilir veya müşteriye WhatsApp üzerinden ekstresini iletebilirsiniz.</p>
+            </section>
+
+            <!-- 11. MOBİL CANLI BARKOD OKUYUCU -->
+            <section id="mobile-scanner" class="section-card theme-blue">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">📱</div>
+                        <div>
+                            <h2>Mobil Canlı Barkod Okuyucu (Kablosuz)</h2>
+                            <p class="desc" style="margin-bottom:0;">Pahalı el terminaline gerek olmadan akıllı telefonunuzun kamerasını barkod okuyucu yapın.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Kablosuz Teknoloji</span>
+                </div>
+
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Karekod ile Bağlanın</h4>
+                            <p>Sol menüden <strong>"📱 Mobil Canlı Barkod"</strong> butonuna basın. Ekranda beliren QR kodu telefonunuzun kamerasıyla okutun.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Depoda veya Reyonda Gezinerek Okutun</h4>
+                            <p>Telefon kamerasını barkoda tuttuğunuz anda barkod bilgisi saniyeler içinde bilgisayardaki programınıza iletilir.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 12. TELEGRAM BİLDİRİMLERİ -->
+            <section id="telegram" class="section-card theme-blue">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">🤖</div>
+                        <div>
+                            <h2>Telegram Cep Takip Asistanı</h2>
+                            <p class="desc" style="margin-bottom:0;">İş yerinizde olmasanız bile anlık satışları ve gün sonu cirosunu Telegram'dan takip edin.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Canlı Raporlama</span>
+                </div>
+
+                <p class="desc"><strong>"🤖 Telegram Cep Takip"</strong> ayarlarından bot token ve kanal/sohbet ID'nizi girerek; yapılan satışları, kasaya giren paraları ve gün sonu Z raporu özetini anlık olarak cebinizden takip edebilirsiniz.</p>
+            </section>
+
+            <!-- 13. KLAVYE KISAYOLLARI -->
+            <section id="shortcuts" class="section-card theme-amber">
+                <div class="section-header">
+                    <div class="title-group">
+                        <div class="icon-badge">⌨️</div>
+                        <div>
+                            <h2>Hızlı Klavye Kısayolları</h2>
+                            <p class="desc" style="margin-bottom:0;">Kasanızı fareye dokunmadan sadece klavye ile yönetin.</p>
+                        </div>
+                    </div>
+                    <span class="tag-badge">Kısayollar</span>
+                </div>
+
+                <div class="shortcuts-grid">
+                    <div class="shortcut-card">
+                        <span class="action">Cari Arama Ekranı</span>
+                        <kbd>F2</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="action">Hızlı Satış / Fiş Kes</span>
+                        <kbd>F3</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="action">Hızlı Alış / Fatura Girişi</span>
+                        <kbd>F4</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="action">Seçili Cariye Borç Yaz</span>
+                        <kbd>F5</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="action">Seçili Cariden Tahsilat Yap</span>
+                        <kbd>F6</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="action">Cari Hesap Ekstresi Aç</span>
+                        <kbd>F10</kbd>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <footer>
+        <p><strong>BİLENSİS ERP</strong> - Stok, Satış ve Finans Yönetim Sistemi</p>
+        <p style="margin-top: 6px; font-size: 0.85rem;">Bu kılavuz güncel sistem özelliklerine göre otomatik olarak derlenmiştir.</p>
+    </footer>
+
+    <script>
+        function filterGuide() {
+            let input = document.getElementById('manualSearch').value.toLowerCase();
+            let cards = document.querySelectorAll('.section-card');
+
+            cards.forEach(card => {
+                let text = card.innerText.toLowerCase();
+                if (text.includes(input)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+# Visual Studio & .NET Build Artifacts
+[Bb]in/
+[Oo]bj/
+publish/
+*/publish/
+Setup_Output/
+*.rar
+*.zip
+
+# Visual Studio temporary files & caches
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build outputs
+*.dll
+*.exe
+*.pdb
+!StokVeresiyeApp/Resources/*.ico
+!StokVeresiyeApp/Resources/*.png
+!StokVeresiyeApp/Resources/*.bmp
+
+# Temporary files & logs
+*.log
+*.tmp
+build_out.txt
+build_utf8.txt
+check_recent.ps1
+test_login.ps1

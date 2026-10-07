@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ========================================================
-echo   BİLENSİS ERP - Kurulum Paketi (Setup) Oluşturucu
+echo   BİLENSİS - Kurulum Paketi (Setup) Oluşturucu
 echo ========================================================
 echo.
 
@@ -45,6 +45,6 @@ if errorlevel 1 (
 echo.
 echo ========================================================
 echo   KURULUM DOSYASI BAŞARIYLA OLUŞTURULDU!
-echo   Dosya Konumu: %OUTPUT_DIR%\Bilensis_Setup_v2.4.0.exe
+echo   Dosya Konumu: %OUTPUT_DIR%\Bilensis_Setup_v2.5.0.exe
 echo ========================================================
 echo.

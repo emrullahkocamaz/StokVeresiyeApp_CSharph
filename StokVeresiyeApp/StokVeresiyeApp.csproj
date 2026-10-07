@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -9,7 +9,7 @@
     <AssemblyTitle>Bilensis - Stok &amp; Cari Yönetim Sistemi</AssemblyTitle>
     <Product>Bilensis</Product>
     <Description>Bilensis - Profesyonel Stok &amp; Cari Yönetim Sistemi</Description>
-    <Version>2.2.0</Version>
+    <Version>2.5.0</Version>
     <ApplicationIcon>Resources\app.ico</ApplicationIcon>
     <NoWarn>$(NoWarn);WFO1000</NoWarn>
   </PropertyGroup>

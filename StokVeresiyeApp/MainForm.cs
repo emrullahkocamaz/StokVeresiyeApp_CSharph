@@ -112,6 +112,7 @@ public class MainForm : KryptonForm
     private ComboBox _cmbAccMovType = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private DateTimePicker _dtpAccStart = new() { Format = DateTimePickerFormat.Short, Value = DateTime.Today.AddMonths(-1) };
     private DateTimePicker _dtpAccEnd = new() { Format = DateTimePickerFormat.Short, Value = DateTime.Today };
+    private TabControl _tabsFinance = new();
     private bool _isRefreshing = false;
 
     public MainForm()
@@ -182,6 +183,22 @@ public class MainForm : KryptonForm
 
         MobileScannerService.BarcodeScannedFromMobile += OnBarcodeScannedFromMobile;
         FormClosed += (s, e) => MobileScannerService.BarcodeScannedFromMobile -= OnBarcodeScannedFromMobile;
+
+        // Günlük Otomatik Bulut Yedekleme Kontrolü
+        Task.Run(() => CloudBackupService.AutoCheckDailyBackup());
+
+        // Program Kapanışında Otomatik Bulut Yedekleme (Aktifse sessiz çalışır)
+        FormClosing += (s, e) =>
+        {
+            try
+            {
+                if (CloudBackupService.Config.BackupOnExit)
+                {
+                    CloudBackupService.ExecuteBackup(silent: true);
+                }
+            }
+            catch { }
+        };
     }
 
     private void BuildLayout()
@@ -806,7 +823,7 @@ public class MainForm : KryptonForm
             ImageLarge = RibbonIconFactory.CreateIcon("invoices", 32),
             ImageSmall = RibbonIconFactory.CreateIcon("invoices", 16)
         };
-        btnInvList.Click += (s, e) => ShowPage(102);
+        btnInvList.Click += (s, e) => OpenInvoicesPage();
 
         var btnExcelInv = new KryptonRibbonGroupButton 
         { 
@@ -815,7 +832,7 @@ public class MainForm : KryptonForm
             ImageLarge = RibbonIconFactory.CreateIcon("excel", 32),
             ImageSmall = RibbonIconFactory.CreateIcon("excel", 16)
         };
-        btnExcelInv.Click += (s, e) => ShowPage(102);
+        btnExcelInv.Click += (s, e) => ExportInvoicesToExcel(null, EventArgs.Empty);
 
         tripInv.Items.Add(btnInvEntry);
         tripInv.Items.Add(btnInvList);
@@ -963,14 +980,15 @@ public class MainForm : KryptonForm
                 MessageBox.Show("Bu işlem için 'Otomatik Bulut Yedekleme' yetkiniz bulunmuyor.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            CloudBackupService.ExecuteBackup(silent: false);
+            using var dlg = new CloudBackupManageDialog();
+            dlg.ShowDialog(this);
         };
 
         tripCloud.Items.Add(btnCloudBackup);
         grpCloud.Items.Add(tripCloud);
         tabSys.Groups.Add(grpCloud);
 
-        var grpConfig = new KryptonRibbonGroup { TextLine1 = "Yapılandırma" };
+        var grpConfig = new KryptonRibbonGroup { TextLine1 = "Yapılandırma & Menü" };
         var tripConfig = new KryptonRibbonGroupTriple();
 
         var btnSettings = new KryptonRibbonGroupButton 
@@ -1004,6 +1022,23 @@ public class MainForm : KryptonForm
         tripConfig.Items.Add(btnLicense);
         tripConfig.Items.Add(btnTheme);
         grpConfig.Items.Add(tripConfig);
+
+        var tripPuzzle = new KryptonRibbonGroupTriple();
+        var btnPuzzle = new KryptonRibbonGroupButton
+        {
+            TextLine1 = "🧩 Menü Düzenle",
+            TextLine2 = "Puzzle / Kilitle",
+            ImageLarge = RibbonIconFactory.CreateIcon("settings", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("settings", 16)
+        };
+        btnPuzzle.Click += (s, e) =>
+        {
+            using var dlg = new RibbonCustomizerDialog(_ribbon, () => { });
+            dlg.ShowDialog(this);
+        };
+        tripPuzzle.Items.Add(btnPuzzle);
+        grpConfig.Items.Add(tripPuzzle);
+
         tabSys.Groups.Add(grpConfig);
 
         var grpLogout = new KryptonRibbonGroup { TextLine1 = "Oturum" };
@@ -1037,6 +1072,7 @@ public class MainForm : KryptonForm
         tabSys.Groups.Add(grpLogout);
 
         _ribbon.RibbonTabs.Add(tabSys);
+        RibbonCustomizerDialog.ApplyToRibbon(_ribbon);
     }
 
     private void LogoutAction()
@@ -2109,6 +2145,7 @@ public class MainForm : KryptonForm
 
         var btnPayInv = UITheme.CreateButton("💳 Kısmi / Tam Ödeme Yap", UITheme.Success, Color.White, (s, e) => OpenInvoicePaymentDialogForSelected(), 185, 34);
         var btnViewInvMeta = UITheme.CreateButton("📄 Fatura Kalemleri", Color.FromArgb(13, 148, 136), Color.White, (s, e) => OpenInvoiceMetaForSelectedInvoice(), 145, 34);
+        var btnExportInvExcel = UITheme.CreateButton("📊 Excel'e Aktar", Color.FromArgb(16, 185, 129), Color.White, ExportInvoicesToExcel, 130, 34);
         var btnRefreshInv = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshInvoices(), 40, 34);
 
         var filterFlowInv = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
@@ -2120,6 +2157,7 @@ public class MainForm : KryptonForm
         filterFlowInv.Controls.Add(_dtpInvEnd);
         filterFlowInv.Controls.Add(btnPayInv);
         filterFlowInv.Controls.Add(btnViewInvMeta);
+        filterFlowInv.Controls.Add(btnExportInvExcel);
         filterFlowInv.Controls.Add(btnRefreshInv);
 
         toolbarInv.Controls.Add(filterFlowInv);
@@ -2164,10 +2202,11 @@ public class MainForm : KryptonForm
         tabInvoices.Controls.Add(pnlInvSummary);
         tabInvoices.Controls.Add(toolbarInv);
 
-        tabsFinance.TabPages.Add(tabAccMov);
-        tabsFinance.TabPages.Add(tabInvoices);
+        _tabsFinance.TabPages.Clear();
+        _tabsFinance.TabPages.Add(tabAccMov);
+        _tabsFinance.TabPages.Add(tabInvoices);
 
-        _pnlAccountMovements.Controls.Add(tabsFinance);
+        _pnlAccountMovements.Controls.Add(_tabsFinance);
         _pnlAccountMovements.Controls.Add(header);
     }
     #endregion
@@ -2177,13 +2216,20 @@ public class MainForm : KryptonForm
     {
         _pnlSettings = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
 
-        var header = CreatePageHeader("Ayarlar, Veritabanı & Excel Entegrasyonu", "Veritabanı yedekleme, geri yükleme, Excel aktarımları ve sistem yönetimi");
+        var header = CreatePageHeader("Ayarlar, Veritabanı & Bulut Entegrasyonu", "Veritabanı yedekleme, Google Drive/Gmail bulut yedek, menü düzenleme ve sistem yönetimi");
 
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, AutoScroll = true, Padding = new Padding(0, 10, 0, 10) };
+        var flow = new FlowLayoutPanel 
+        { 
+            Dock = DockStyle.Fill, 
+            FlowDirection = FlowDirection.TopDown, 
+            AutoScroll = true, 
+            WrapContents = false,
+            Padding = new Padding(0, 10, 0, 10) 
+        };
 
         // 1. Veritabanı Yönetim Kartı
-        var dbCard = new CardPanel { Width = 800, Height = 220, Margin = new Padding(0, 0, 0, 20) };
-        var lblDbTitle = new Label { Text = "🗄️ SQL Server Veritabanı Yapılandırması & Yedekleme", Font = UITheme.TitleFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 30 };
+        var dbCard = new CardPanel { Width = 840, Height = 220, Margin = new Padding(0, 0, 0, 20) };
+        var lblDbTitle = new Label { Text = "🗄️ SQL Server Veritabanı Yapılandırması & Yerel Yedekleme", Font = UITheme.TitleFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 30 };
         var lblDbDesc = new Label
         {
             Text = $"Aktif SQL Sunucusu: {Database.CurrentServer}\nVeritabanı Adı: {Database.CurrentDatabase}\nKimlik Doğrulama: {(Database.Config.IntegratedSecurity ? "Windows Kimlik Doğrulaması (Trusted)" : "SQL Server Kullanıcı Doğrulaması")}\n\nVeritabanı bağlantı parametrelerini test edebilir, SQL yedeği alabilir veya geri yükleyebilirsiniz.",
@@ -2214,8 +2260,64 @@ public class MainForm : KryptonForm
         dbCard.Controls.Add(lblDbTitle);
         flow.Controls.Add(dbCard);
 
-        // 2. Excel İçe Aktarım Kartı
-        var excelCard = new CardPanel { Width = 800, Height = 190, Margin = new Padding(0, 0, 0, 20) };
+        // 2. Google Drive & Gmail Bulut Yedekleme & Geri Yükleme Kartı
+        var cloudCard = new CardPanel { Width = 840, Height = 210, Margin = new Padding(0, 0, 0, 20) };
+        var lblCloudTitle = new Label { Text = "☁️ Google Drive & Gmail Bulut Yedekleme & Geri Yükleme", Font = UITheme.TitleFont, ForeColor = Color.FromArgb(2, 132, 199), Dock = DockStyle.Top, Height = 30 };
+        var lblCloudDesc = new Label
+        {
+            Text = "Gmail kullanıcı adı & şifrenizle otomatik bağlantı sağlayın. SQL veritabanı yedekleriniz şifreli .zip formatında Google Drive veya yerel klasörünüze kaydedilir, dilerseniz Gmail adresinize e-posta ekiyle sessizce iletilir. Mevcut yedekleri görüntüleyip dilediğiniz yedeği tek tıkla geri yükleyebilirsiniz (Restore). Program her kapandığında veya günlük otomatik yedek alma seçeneklerini buradan yönetin.",
+            Font = UITheme.RegularFont,
+            ForeColor = UITheme.TextSecondary,
+            Dock = DockStyle.Top,
+            Height = 80
+        };
+
+        var cloudButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 45 };
+        var btnOpenCloudManage = UITheme.CreateButton("☁️ Bulut Yedekleme & Geri Yükleme Yönetimi", Color.FromArgb(2, 132, 199), Color.White, (s, e) =>
+        {
+            using var dlg = new CloudBackupManageDialog();
+            dlg.ShowDialog(this);
+        }, 290, 36);
+        var btnTriggerCloud = UITheme.CreateButton("⚡ Şimdi Buluta Yedek Al", UITheme.Success, Color.White, (s, e) =>
+        {
+            CloudBackupService.ExecuteBackup(silent: false);
+        }, 190, 36);
+
+        cloudButtons.Controls.Add(btnOpenCloudManage);
+        cloudButtons.Controls.Add(btnTriggerCloud);
+
+        cloudCard.Controls.Add(cloudButtons);
+        cloudCard.Controls.Add(lblCloudDesc);
+        cloudCard.Controls.Add(lblCloudTitle);
+        flow.Controls.Add(cloudCard);
+
+        // 3. Ribbon Menü Puzzle Düzenleyicisi & Kilitleme Kartı
+        var puzzleCard = new CardPanel { Width = 840, Height = 190, Margin = new Padding(0, 0, 0, 20) };
+        var lblPuzzleTitle = new Label { Text = "🧩 Menü Düzenleyici (Puzzle Modu & Kilitleme)", Font = UITheme.TitleFont, ForeColor = Color.FromArgb(234, 88, 12), Dock = DockStyle.Top, Height = 30 };
+        var lblPuzzleDesc = new Label
+        {
+            Text = "İşletmenizde kullanmadığınız menü sekmelerini (Ürünler, Cari, Stok, Kasa vb.) Ribbon çubuğundan kaldırabilir veya tekrar ekleyebilirsiniz. Düzenlemeniz bittiğinde 'Menü Düzenini Kilitle' seçeneğiyle ekranı dondurabilir, personelin veya diğer kullanıcıların yanlışlıkla menüleri kaldırmasını önleyebilirsiniz.",
+            Font = UITheme.RegularFont,
+            ForeColor = UITheme.TextSecondary,
+            Dock = DockStyle.Top,
+            Height = 65
+        };
+
+        var puzzleButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 45 };
+        var btnOpenPuzzle = UITheme.CreateButton("🧩 Menü Sekmelerini Düzenle & Kilitle", Color.FromArgb(234, 88, 12), Color.White, (s, e) =>
+        {
+            using var dlg = new RibbonCustomizerDialog(_ribbon, () => { });
+            dlg.ShowDialog(this);
+        }, 280, 36);
+        puzzleButtons.Controls.Add(btnOpenPuzzle);
+
+        puzzleCard.Controls.Add(puzzleButtons);
+        puzzleCard.Controls.Add(lblPuzzleDesc);
+        puzzleCard.Controls.Add(lblPuzzleTitle);
+        flow.Controls.Add(puzzleCard);
+
+        // 4. Excel İçe Aktarım Kartı
+        var excelCard = new CardPanel { Width = 840, Height = 190, Margin = new Padding(0, 0, 0, 20) };
         var lblExTitle = new Label { Text = "📥 Excel'den Toplu Veri Yükleme", Font = UITheme.TitleFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 30 };
         var lblExDesc = new Label
         {
@@ -2230,8 +2332,13 @@ public class MainForm : KryptonForm
         var btnImportExcel = UITheme.CreateButton("📥 Excel Dosyasından Yükle", UITheme.Success, Color.White, ImportExcelClick, 220, 36);
         exButtons.Controls.Add(btnImportExcel);
 
-        // 3. Denetim & İşlem Logları Kartı
-        var logCard = new CardPanel { Width = 800, Height = 170, Margin = new Padding(0, 0, 0, 20) };
+        excelCard.Controls.Add(exButtons);
+        excelCard.Controls.Add(lblExDesc);
+        excelCard.Controls.Add(lblExTitle);
+        flow.Controls.Add(excelCard);
+
+        // 5. Denetim & İşlem Logları Kartı
+        var logCard = new CardPanel { Width = 840, Height = 170, Margin = new Padding(0, 0, 0, 20) };
         var lblLogTitle = new Label { Text = "📜 Sistem Değişiklik ve Silme Denetim Kayıtları (Audit Trail)", Font = UITheme.TitleFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 30 };
         var lblLogDesc = new Label
         {
@@ -2251,8 +2358,8 @@ public class MainForm : KryptonForm
         logCard.Controls.Add(lblLogTitle);
         flow.Controls.Add(logCard);
 
-        // 4. Telegram Botu & Cep Takip Kartı
-        var tgCard = new CardPanel { Width = 800, Height = 170, Margin = new Padding(0, 0, 0, 20) };
+        // 6. Telegram Botu & Cep Takip Kartı
+        var tgCard = new CardPanel { Width = 840, Height = 170, Margin = new Padding(0, 0, 0, 20) };
         var lblTgTitle = new Label { Text = "🤖 Telegram Asistanı & Cep Telefonundan Canlı Takip", Font = UITheme.TitleFont, ForeColor = Color.FromArgb(20, 176, 186), Dock = DockStyle.Top, Height = 30 };
         var lblTgDesc = new Label
         {
@@ -2272,8 +2379,8 @@ public class MainForm : KryptonForm
         tgCard.Controls.Add(lblTgTitle);
         flow.Controls.Add(tgCard);
 
-        // 5. Görsel Tema & Palet Yöneticisi Kartı
-        var themeCard = new CardPanel { Width = 800, Height = 175, Margin = new Padding(0, 0, 0, 20) };
+        // 7. Görsel Tema & Palet Yöneticisi Kartı
+        var themeCard = new CardPanel { Width = 840, Height = 175, Margin = new Padding(0, 0, 0, 20) };
         var lblThemeTitle = new Label { Text = "🎨 Görsel Tema & Gece Modu (Dark Mode) Yönetimi", Font = UITheme.TitleFont, ForeColor = Color.FromArgb(124, 58, 237), Dock = DockStyle.Top, Height = 30 };
         var lblThemeDesc = new Label
         {
@@ -2324,6 +2431,7 @@ public class MainForm : KryptonForm
 
         _pnlSettings.Controls.Add(flow);
         _pnlSettings.Controls.Add(header);
+        header.SendToBack();
     }
     #endregion
 
@@ -3807,6 +3915,21 @@ WHERE m.Id = $id", ("$id", id));
     private void ExportAccMovToExcel(object? sender, EventArgs e)
     {
         ExportGridToExcel(_gridAccMov, "Finansal Hareketler Raporu", "Finansal_Hareketler");
+    }
+
+    private void ExportInvoicesToExcel(object? sender, EventArgs e)
+    {
+        ExportGridToExcel(_gridInvoices, "Alış ve Satış Faturaları Raporu", "Faturalar_Raporu");
+    }
+
+    private void OpenInvoicesPage()
+    {
+        ShowPage(4);
+        if (_tabsFinance.TabPages.Count > 1)
+        {
+            _tabsFinance.SelectedIndex = 1;
+        }
+        RefreshInvoices();
     }
 
     private void ExportGridToExcel(DataGridView grid, string title, string defaultFileName)

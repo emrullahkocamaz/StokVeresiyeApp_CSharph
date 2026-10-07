@@ -1,31 +1,96 @@
 using System;
+using System.Collections.Generic;
+using System.Data;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
+using System.Net;
+using System.Net.Mail;
+using System.Text.Json;
+using Microsoft.Data.SqlClient;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Models;
 
 namespace StokVeresiyeApp.Services;
 
+public class CloudBackupConfig
+{
+    public string GmailAddress { get; set; } = "";
+    public string GmailAppPassword { get; set; } = "";
+    public string TargetDirectory { get; set; } = "";
+    public bool BackupOnExit { get; set; } = true;
+    public bool DailyBackupEnabled { get; set; } = true;
+    public bool BackupOnClosing { get; set; } = true;
+    public bool SendToGmail { get; set; } = false;
+    public DateTime? LastBackupDate { get; set; }
+}
+
+public class BackupFileInfo
+{
+    public string FileName { get; set; } = "";
+    public string FullPath { get; set; } = "";
+    public double SizeMb { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string FormattedSize => $"{SizeMb:N2} MB";
+    public string FormattedDate => CreatedAt.ToString("dd.MM.yyyy HH:mm");
+}
+
 public static class CloudBackupService
 {
-    private static readonly string ConfigFile = Path.Combine(
+    private static readonly string ConfigDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "StokVeresiyeApp",
-        "cloud_backup_config.txt"
+        "StokVeresiyeApp"
     );
+    private static readonly string ConfigJsonPath = Path.Combine(ConfigDir, "cloud_backup_config.json");
 
-    public static string GetBackupTargetDirectory()
+    private static CloudBackupConfig _config = new();
+
+    static CloudBackupService()
+    {
+        LoadConfig();
+    }
+
+    public static CloudBackupConfig Config => _config;
+
+    public static void LoadConfig()
     {
         try
         {
-            if (File.Exists(ConfigFile))
+            Directory.CreateDirectory(ConfigDir);
+            if (File.Exists(ConfigJsonPath))
             {
-                string dir = File.ReadAllText(ConfigFile).Trim();
-                if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
-                    return dir;
+                string json = File.ReadAllText(ConfigJsonPath);
+                var loaded = JsonSerializer.Deserialize<CloudBackupConfig>(json);
+                if (loaded != null)
+                {
+                    _config = loaded;
+                    return;
+                }
             }
+        }
+        catch { }
 
-            // Otomatik tespit: Kullanıcı Google Drive veya OneDrive kullanıyorsa oraya koy
+        _config = new CloudBackupConfig();
+        _config.TargetDirectory = DetectDefaultBackupDirectory();
+        SaveConfig();
+    }
+
+    public static void SaveConfig()
+    {
+        try
+        {
+            Directory.CreateDirectory(ConfigDir);
+            string json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(ConfigJsonPath, json);
+        }
+        catch { }
+    }
+
+    public static string DetectDefaultBackupDirectory()
+    {
+        try
+        {
+            // 1. Google Drive Masaüstü Uygulaması Kontrolü
             string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string gDrive = Path.Combine(userProfile, "Google Drive");
             if (Directory.Exists(gDrive))
@@ -35,6 +100,19 @@ public static class CloudBackupService
                 return gTarget;
             }
 
+            // Alternatif Google Drive konumu (G:\ veya My Drive)
+            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
+            {
+                string drivePath = Path.Combine(drive.RootDirectory.FullName, "My Drive");
+                if (Directory.Exists(drivePath))
+                {
+                    string target = Path.Combine(drivePath, "Bilensis_Yedekler");
+                    Directory.CreateDirectory(target);
+                    return target;
+                }
+            }
+
+            // 2. OneDrive Kontrolü
             string oneDrive = Path.Combine(userProfile, "OneDrive");
             if (Directory.Exists(oneDrive))
             {
@@ -43,7 +121,7 @@ public static class CloudBackupService
                 return oTarget;
             }
 
-            // Standart yedek klasörü (Belgelerim / Bilensis_Yedekler)
+            // 3. Belgelerim Standart Yedek Klasörü
             string docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             string defaultDir = Path.Combine(docs, "Bilensis_Yedekler");
             Directory.CreateDirectory(defaultDir);
@@ -57,15 +135,15 @@ public static class CloudBackupService
         }
     }
 
-    public static void SetBackupTargetDirectory(string directory)
+    public static string GetBackupTargetDirectory()
     {
-        try
+        if (!string.IsNullOrWhiteSpace(_config.TargetDirectory) && Directory.Exists(_config.TargetDirectory))
         {
-            string cfgDir = Path.GetDirectoryName(ConfigFile)!;
-            Directory.CreateDirectory(cfgDir);
-            File.WriteAllText(ConfigFile, directory);
+            return _config.TargetDirectory;
         }
-        catch { }
+        _config.TargetDirectory = DetectDefaultBackupDirectory();
+        SaveConfig();
+        return _config.TargetDirectory;
     }
 
     public static (bool Success, string Message, string? BackupFilePath) ExecuteBackup(bool silent = false)
@@ -94,7 +172,7 @@ public static class CloudBackupService
             }
             catch
             {
-                // SQL Server ayrı servis kullanıcısı olduğunda temp'e yazamayabilir; AppData klasörünü dene
+                // SQL Server servis hesabı temp klasörüne yazamazsa AppData klasörünü dene
                 string appDataBak = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), tempBakName);
                 string sqlFallback = $@"BACKUP DATABASE [{dbName}] TO DISK = '{appDataBak}' WITH FORMAT, INIT";
                 using var connFallback = Database.Open();
@@ -119,13 +197,246 @@ public static class CloudBackupService
             // Geçici .bak dosyasını temizle
             try { File.Delete(tempBakPath); } catch { }
 
-            AuditLogService.Log("Sistem", "Bulut Yedekleme", null, null, null, $"Veritabanı yedeği alındı: {finalZipPath}");
+            _config.LastBackupDate = DateTime.Now;
+            SaveConfig();
 
-            return (true, $"Veritabanı başarıyla yedeklendi ve bulut hedefine aktarıldı!\n\nKonum: {finalZipPath}", finalZipPath);
+            string mailStatus = "";
+            // Gmail yedekleme aktifse e-posta ile de gönder
+            if (_config.SendToGmail && !string.IsNullOrWhiteSpace(_config.GmailAddress) && !string.IsNullOrWhiteSpace(_config.GmailAppPassword))
+            {
+                var mailResult = SendBackupToGmail(finalZipPath);
+                mailStatus = mailResult.Success 
+                    ? "\n✉️ Gmail bulut hesabına başarıyla iletildi!" 
+                    : $"\n⚠️ Gmail gönderim uyarısı: {mailResult.Message}";
+            }
+
+            AuditLogService.Log("Sistem", "Bulut Yedekleme", null, "Otomatik Bulut Yedekleme", null, $"Veritabanı yedeği alındı: {finalZipPath}");
+
+            string msg = $"Veritabanı başarıyla yedeklendi!\n\nKonum: {finalZipPath}{mailStatus}";
+            return (true, msg, finalZipPath);
         }
         catch (Exception ex)
         {
             return (false, $"Yedekleme sırasında hata oluştu: {ex.Message}", null);
+        }
+    }
+
+    public static void AutoCheckDailyBackup()
+    {
+        try
+        {
+            if (!_config.DailyBackupEnabled) return;
+
+            // Eğer bugün henüz yedek alınmadıysa otomatik sessiz yedek al
+            if (_config.LastBackupDate == null || _config.LastBackupDate.Value.Date < DateTime.Today)
+            {
+                ExecuteBackup(silent: true);
+            }
+        }
+        catch { }
+    }
+
+    public static (bool Success, string Message) SendBackupToGmail(string zipFilePath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_config.GmailAddress) || string.IsNullOrWhiteSpace(_config.GmailAppPassword))
+            {
+                return (false, "Gmail kullanıcı adı veya şifresi girilmemiş.");
+            }
+
+            if (!File.Exists(zipFilePath))
+            {
+                return (false, "Yedek dosyası bulunamadı.");
+            }
+
+            using var message = new MailMessage();
+            message.From = new MailAddress(_config.GmailAddress, "Bilensis Otomatik Bulut Yedek");
+            message.To.Add(_config.GmailAddress);
+            message.Subject = $"📦 Bilensis Veritabanı Bulut Yedeği - {DateTime.Now:dd.MM.yyyy HH:mm}";
+            message.Body = $"Merhaba,\n\nBilensis Stok & Cari Yönetim Sistemi'nin otomatik bulut SQL veritabanı yedeği ektedir.\n\nYedek Tarihi: {DateTime.Now:dd.MM.yyyy HH:mm:ss}\nDosya: {Path.GetFileName(zipFilePath)}\n\nBu e-posta otomatik oluşturulmuştur.";
+            message.IsBodyHtml = false;
+
+            var attachment = new Attachment(zipFilePath);
+            message.Attachments.Add(attachment);
+
+            using var smtp = new SmtpClient("smtp.gmail.com", 587)
+            {
+                EnableSsl = true,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(_config.GmailAddress, _config.GmailAppPassword.Replace(" ", "")),
+                Timeout = 120000
+            };
+
+            smtp.Send(message);
+            return (true, "Yedek Gmail hesabınıza başarıyla gönderildi.");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Gmail gönderimi başarısız: {ex.Message}");
+        }
+    }
+
+    public static (bool Success, string Message) TestGmailConnection(string email, string password)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            {
+                return (false, "Lütfen Gmail adresinizi ve şifrenizi giriniz.");
+            }
+
+            using var message = new MailMessage();
+            message.From = new MailAddress(email, "Bilensis Sistem Testi");
+            message.To.Add(email);
+            message.Subject = "✅ Bilensis Google / Gmail Bağlantı Testi Başarılı";
+            message.Body = $"Tebrikler!\n\nBilensis Bulut Yedekleme Google / Gmail bağlantı ayarlarınız başarıyla doğrulandı.\n\nTest Zamanı: {DateTime.Now:dd.MM.yyyy HH:mm:ss}";
+            message.IsBodyHtml = false;
+
+            using var smtp = new SmtpClient("smtp.gmail.com", 587)
+            {
+                EnableSsl = true,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(email, password.Replace(" ", "")),
+                Timeout = 15000
+            };
+
+            smtp.Send(message);
+            return (true, "Gmail bağlantısı başarıyla doğrulandı! Test e-postası gelen kutunuza gönderildi.");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Bağlantı hatası: {ex.Message}\n\nİpucu: Google hesabınızda '2 Adımlı Doğrulama' açık ise, lütfen Gmail şifreniz yerine Google Hesap Ayarları > Güvenlik > Uygulama Şifreleri (App Password) bölümünden 16 haneli bir şifre oluşturup giriniz.");
+        }
+    }
+
+    public static List<BackupFileInfo> GetExistingBackups()
+    {
+        var list = new List<BackupFileInfo>();
+        try
+        {
+            string targetDir = GetBackupTargetDirectory();
+            if (Directory.Exists(targetDir))
+            {
+                var files = Directory.GetFiles(targetDir, "Bilensis_*.*", SearchOption.TopDirectoryOnly)
+                    .Where(f => f.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".bak", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(f => File.GetCreationTime(f));
+
+                foreach (var f in files)
+                {
+                    var fi = new FileInfo(f);
+                    list.Add(new BackupFileInfo
+                    {
+                        FileName = fi.Name,
+                        FullPath = fi.FullName,
+                        SizeMb = fi.Length / (1024.0 * 1024.0),
+                        CreatedAt = fi.CreationTime
+                    });
+                }
+            }
+        }
+        catch { }
+
+        return list;
+    }
+
+    public static (bool Success, string Message) RestoreBackup(string backupFilePath)
+    {
+        string? tempBakExtracted = null;
+        try
+        {
+            if (!File.Exists(backupFilePath))
+            {
+                return (false, "Seçilen yedek dosyası bulunamadı.");
+            }
+
+            string actualBakPath = backupFilePath;
+
+            // Eğer dosya .zip ise içindeki .bak dosyasını geçici klasöre çıkart
+            if (backupFilePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                string tempDir = Path.Combine(Path.GetTempPath(), "Bilensis_Restore_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDir);
+
+                using (var archive = ZipFile.OpenRead(backupFilePath))
+                {
+                    var bakEntry = archive.Entries.FirstOrDefault(e => e.Name.EndsWith(".bak", StringComparison.OrdinalIgnoreCase));
+                    if (bakEntry == null)
+                    {
+                        return (false, "Yedek .zip arşivi içerisinde geçerli bir SQL Server .bak dosyası bulunamadı.");
+                    }
+
+                    tempBakExtracted = Path.Combine(tempDir, bakEntry.Name);
+                    bakEntry.ExtractToFile(tempBakExtracted, true);
+                    actualBakPath = tempBakExtracted;
+                }
+            }
+
+            string dbName = Database.CurrentDatabase;
+            string masterCs = Database.Config.BuildConnectionString("master");
+
+            // Master veritabanı üzerinden mevcut açık bağlantıları sonlandır ve RESTORE yap
+            using (var masterConn = new SqlConnection(masterCs))
+            {
+                masterConn.Open();
+
+                // 1. Veritabanını SINGLE_USER moduna al (bağlantıları kopar)
+                try
+                {
+                    using var killCmd = masterConn.CreateCommand();
+                    killCmd.CommandText = $@"
+ALTER DATABASE [{dbName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;";
+                    killCmd.CommandTimeout = 60;
+                    killCmd.ExecuteNonQuery();
+                }
+                catch { }
+
+                // 2. RESTORE DATABASE komutunu çalıştır
+                using (var restoreCmd = masterConn.CreateCommand())
+                {
+                    restoreCmd.CommandText = $@"
+RESTORE DATABASE [{dbName}] FROM DISK = '{actualBakPath}' WITH REPLACE;";
+                    restoreCmd.CommandTimeout = 300;
+                    restoreCmd.ExecuteNonQuery();
+                }
+
+                // 3. Veritabanını tekrar MULTI_USER moduna al
+                using (var multiCmd = masterConn.CreateCommand())
+                {
+                    multiCmd.CommandText = $@"
+ALTER DATABASE [{dbName}] SET MULTI_USER;";
+                    multiCmd.CommandTimeout = 60;
+                    multiCmd.ExecuteNonQuery();
+                }
+            }
+
+            AuditLogService.Log("Sistem", "Yedekten Geri Yükleme", null, "Veritabanı Geri Yükleme", null, $"Veritabanı yedeğe geri döndürüldü: {Path.GetFileName(backupFilePath)}");
+
+            return (true, $"Veritabanı başarıyla seçilen yedeğe ({Path.GetFileName(backupFilePath)}) geri döndürüldü!");
+        }
+        catch (Exception ex)
+        {
+            // Olası hata durumunda veritabanını MULTI_USER'a döndürmeyi dene
+            try
+            {
+                string masterCs = Database.Config.BuildConnectionString("master");
+                using var masterConn = new SqlConnection(masterCs);
+                masterConn.Open();
+                using var multiCmd = masterConn.CreateCommand();
+                multiCmd.CommandText = $"ALTER DATABASE [{Database.CurrentDatabase}] SET MULTI_USER;";
+                multiCmd.ExecuteNonQuery();
+            }
+            catch { }
+
+            return (false, $"Geri yükleme sırasında hata oluştu: {ex.Message}");
+        }
+        finally
+        {
+            if (tempBakExtracted != null && File.Exists(tempBakExtracted))
+            {
+                try { File.Delete(tempBakExtracted); } catch { }
+                try { Directory.Delete(Path.GetDirectoryName(tempBakExtracted)!, true); } catch { }
+            }
         }
     }
 }

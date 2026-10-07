@@ -1036,7 +1036,43 @@ public class MainForm : KryptonForm
             using var dlg = new RibbonCustomizerDialog(_ribbon, () => { });
             dlg.ShowDialog(this);
         };
+
+        var btnDbMaint = new KryptonRibbonGroupButton
+        {
+            TextLine1 = "⚡ DB Bakımı",
+            TextLine2 = "Shrink & Hızlandır",
+            ImageLarge = RibbonIconFactory.CreateIcon("database", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("database", 16)
+        };
+        btnDbMaint.Click += async (s, e) =>
+        {
+            var confirm = MessageBox.Show(
+                "SQL Server veritabanı bakım ve optimizasyon işlemi başlatılacak:\n\n" +
+                "1. Log (.ldf) dosyası küçültülecektir (Log Shrink)\n" +
+                "2. Boş alanlar diske iade edilecektir (DB Shrink)\n" +
+                "3. Tüm parçalanmış indeksler baştan inşa edilecektir (Rebuild Indexes)\n" +
+                "4. Sorgu istatistikleri güncellenecektir (sp_updatestats)\n\n" +
+                "Devam etmek istiyor musunuz?",
+                "Veritabanı Bakım Onayı",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question
+            );
+            if (confirm != DialogResult.Yes) return;
+
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                var res = await DatabaseMaintenanceService.ExecuteMaintenanceAsync();
+                MessageBox.Show(res.Message, res.Success ? "Optimizasyon Başarılı" : "Hata", MessageBoxButtons.OK, res.Success ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        };
+
         tripPuzzle.Items.Add(btnPuzzle);
+        tripPuzzle.Items.Add(btnDbMaint);
         grpConfig.Items.Add(tripPuzzle);
 
         tabSys.Groups.Add(grpConfig);
@@ -2250,10 +2286,37 @@ public class MainForm : KryptonForm
         }, 180, 36);
         var btnBackup = UITheme.CreateButton("💾 SQL Yedeği Al (.bak)", UITheme.Secondary, Color.White, BackupDatabaseClick, 180, 36);
         var btnRestore = UITheme.CreateButton("📂 Yedekten Geri Yükle", UITheme.Warning, Color.White, RestoreDatabaseClick, 180, 36);
+        var btnMaint = UITheme.CreateButton("⚡ Optimize Et (Shrink & Reindex)", Color.FromArgb(16, 185, 129), Color.White, async (s, e) =>
+        {
+            var confirm = MessageBox.Show(
+                "SQL Server veritabanı bakım ve optimizasyon işlemi başlatılacak:\n\n" +
+                "1. Log (.ldf) dosyası küçültülecektir (Log Shrink)\n" +
+                "2. Boş alanlar diske iade edilecektir (DB Shrink)\n" +
+                "3. Tüm parçalanmış indeksler baştan inşa edilecektir (Rebuild Indexes)\n" +
+                "4. Sorgu istatistikleri güncellenecektir (sp_updatestats)\n\n" +
+                "Devam etmek istiyor musunuz?",
+                "Veritabanı Bakım Onayı",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question
+            );
+            if (confirm != DialogResult.Yes) return;
+
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                var res = await DatabaseMaintenanceService.ExecuteMaintenanceAsync();
+                MessageBox.Show(res.Message, res.Success ? "Optimizasyon Başarılı" : "Hata", MessageBoxButtons.OK, res.Success ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        }, 260, 36);
 
         dbButtons.Controls.Add(btnConfigSql);
         dbButtons.Controls.Add(btnBackup);
         dbButtons.Controls.Add(btnRestore);
+        dbButtons.Controls.Add(btnMaint);
 
         dbCard.Controls.Add(dbButtons);
         dbCard.Controls.Add(lblDbDesc);

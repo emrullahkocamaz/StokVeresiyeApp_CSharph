@@ -303,6 +303,11 @@ ORDER BY p.Name");
             btnDisplay.Margin = new Padding(0, 0, 6, 0);
             flowLeft.Controls.Add(btnDisplay);
 
+            // 5. Termal Fiş Yazdır Butonu
+            var btnThermal = UITheme.CreateKryptonButton("🖨️ Fiş Yazdır", Color.FromArgb(71, 85, 105), Color.White, (s, e) => PrintThermalReceiptClick(), 115, 36);
+            btnThermal.Margin = new Padding(0, 0, 6, 0);
+            flowLeft.Controls.Add(btnThermal);
+
             actionPanel.Controls.Add(flowLeft);
             flowLeft.BringToFront();
         }
@@ -488,6 +493,44 @@ ORDER BY p.Name");
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void PrintThermalReceiptClick()
+    {
+        string customerName = (_cmbAccount.SelectedItem is DataRowView cav) ? cav["Display"]?.ToString() ?? "Perakende Müşteri" : "Perakende Müşteri";
+        string productName = (_cmbProduct.SelectedItem is DataRowView pav) ? pav["Display"]?.ToString() ?? "Ürün" : "Ürün";
+        double q = ParseNumber(_txtQty.Text);
+        double price = ParseNumber(_txtUnitPrice.Text);
+        double disc = ParseNumber(_txtDiscount.Text);
+        double total = ParseNumber(_lblNetTotal.Text);
+        string payment = _cmbPayment.Text;
+
+        var items = new List<ReceiptPrintItem>
+        {
+            new ReceiptPrintItem
+            {
+                Name = productName,
+                Quantity = q,
+                UnitPrice = price,
+                Total = total
+            }
+        };
+
+        var result = ThermalReceiptService.PrintSale(
+            customerName,
+            _txtDocNo.Text.Trim(),
+            payment,
+            items,
+            q * price,
+            disc > 0 ? (q * price * disc / 100.0) : 0,
+            total,
+            0
+        );
+
+        if (!result.Success)
+        {
+            MessageBox.Show(result.Message, "Fiş Yazdırma", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 

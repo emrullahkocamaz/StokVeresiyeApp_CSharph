@@ -1,6 +1,8 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Krypton.Toolkit;
 using StokVeresiyeApp.Helpers;
@@ -9,7 +11,7 @@ using StokVeresiyeApp.Services;
 
 namespace StokVeresiyeApp.Forms;
 
-public class CloudBackupManageDialog : BaseModernForm
+public class CloudBackupManageDialog : KryptonForm
 {
     // Ayarlar Sekmesi Kontrolleri
     private readonly KryptonTextBox _txtGmail = new();
@@ -22,10 +24,21 @@ public class CloudBackupManageDialog : BaseModernForm
 
     // Yedek Listesi Kontrolleri
     private readonly KryptonDataGridView _gridBackups = new();
-    private readonly KryptonLabel _lblStatus = new();
+    private readonly Label _lblStatus = new();
 
-    public CloudBackupManageDialog() : base("☁️ Google Drive & Gmail Otomatik Bulut Yedekleme Yönetimi", 860, 680)
+    public CloudBackupManageDialog()
     {
+        Text = "☁️ Google Drive & Gmail Otomatik Bulut Yedekleme Yönetimi";
+        ClientSize = new Size(880, 640);
+        MinimumSize = new Size(820, 560);
+        StartPosition = FormStartPosition.CenterParent;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
+        MinimizeBox = false;
+        BackColor = UITheme.Background;
+        Font = UITheme.RegularFont;
+        Icon = AppResources.AppIcon;
+
         BuildInterface();
         LoadConfigData();
         RefreshBackupsList();
@@ -33,82 +46,138 @@ public class CloudBackupManageDialog : BaseModernForm
 
     private void BuildInterface()
     {
-        // Standart Kaydet / İptal butonlarını ayarla
-        BtnSave.Text = "💾 Ayarları Kaydet";
-        BtnSave.Click += (s, e) => SaveSettings(showMessage: true);
+        // 1. Üst Başlık Paneli
+        var headerPanel = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 70,
+            BackColor = UITheme.CardBg,
+            Padding = new Padding(20, 10, 20, 10)
+        };
 
-        // TabControl ile Yedek Listesi ve Ayarları Ayır
+        var lblTitle = new Label
+        {
+            Text = "☁️ Google Drive & Gmail Otomatik Bulut Yedekleme",
+            Font = UITheme.HeaderFont,
+            ForeColor = UITheme.TextPrimary,
+            Dock = DockStyle.Top,
+            Height = 28
+        };
+
+        var lblSub = new Label
+        {
+            Text = "SQL veritabanı yedeklerinizi Google Drive ve Gmail bulutunda güvenle saklayın, dilediğiniz zaman tek tıkla geri yükleyin.",
+            Font = UITheme.SmallFont,
+            ForeColor = UITheme.TextSecondary,
+            Dock = DockStyle.Fill
+        };
+
+        headerPanel.Controls.Add(lblSub);
+        headerPanel.Controls.Add(lblTitle);
+
+        // 2. Alt İşlem Paneli
+        var bottomPanel = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 65,
+            BackColor = UITheme.CardBg,
+            Padding = new Padding(20, 14, 20, 14)
+        };
+
+        var lblHint = new Label
+        {
+            Text = "💡 İpucu: Google Drive kurulu ise yedekleriniz anında buluta senkronize edilir.",
+            Font = UITheme.SmallFont,
+            ForeColor = UITheme.TextMuted,
+            Dock = DockStyle.Left,
+            AutoSize = true,
+            Padding = new Padding(0, 8, 0, 0)
+        };
+
+        var btnClose = UITheme.CreateKryptonButton("Kapat", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => Close(), 90, 36);
+        btnClose.Dock = DockStyle.Right;
+
+        var btnSave = UITheme.CreateKryptonButton("💾 Ayarları Kaydet", UITheme.Primary, Color.White, (s, e) => SaveSettings(showMessage: true), 160, 36);
+        btnSave.Dock = DockStyle.Right;
+
+        bottomPanel.Controls.Add(lblHint);
+        bottomPanel.Controls.Add(btnClose);
+        bottomPanel.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 10 });
+        bottomPanel.Controls.Add(btnSave);
+
+        // 3. Orta TabControl Paneli
         var tabs = new TabControl
         {
             Dock = DockStyle.Fill,
-            Font = UITheme.RegularFont
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
+            Padding = new Point(14, 8)
         };
 
-        var tabBackups = new TabPage("📋 Mevcut Yedekler & Geri Yükleme") { BackColor = UITheme.CardBg, Padding = new Padding(12) };
-        var tabSettings = new TabPage("⚙️ Google / Gmail & Yedekleme Ayarları") { BackColor = UITheme.CardBg, Padding = new Padding(16) };
+        var tabBackups = new TabPage("📋 Mevcut Yedekler & Geri Yükleme") { BackColor = UITheme.Background, Padding = new Padding(15) };
+        var tabSettings = new TabPage("⚙️ Google / Gmail & Yedekleme Ayarları") { BackColor = UITheme.Background, Padding = new Padding(20) };
 
         // ==========================================
         // 1. SEKME: MEVCUT YEDEKLER & GERİ YÜKLEME
         // ==========================================
-        var pnlBackupActions = new Panel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(0, 0, 0, 10) };
-        var btnTakeBackupNow = UITheme.CreateButton("💾 Hemen Bulut Yedeği Al", UITheme.Primary, Color.White, (s, e) => TakeBackupNow(), 180, 36);
-        var btnRestoreSelected = UITheme.CreateButton("📂 Seçilen Yedeği Geri Yükle (Restore)", Color.FromArgb(220, 38, 38), Color.White, (s, e) => RestoreSelectedBackup(), 260, 36);
-        var btnOpenFolder = UITheme.CreateButton("📁 Yedek Klasörünü Aç", UITheme.Secondary, Color.White, (s, e) => OpenBackupFolder(), 160, 36);
-        var btnRefreshList = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshBackupsList(), 40, 36);
+        var pnlBackupActions = new Panel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(0, 0, 0, 10) };
+        var btnTakeBackupNow = UITheme.CreateButton("💾 Hemen Bulut Yedeği Al", UITheme.Primary, Color.White, (s, e) => TakeBackupNow(), 185, 36);
+        var btnRestoreSelected = UITheme.CreateButton("📂 Seçilen Yedeği Geri Yükle", Color.FromArgb(220, 38, 38), Color.White, (s, e) => RestoreSelectedBackup(), 210, 36);
+        var btnOpenFolder = UITheme.CreateButton("📁 Klasörü Aç", UITheme.Secondary, Color.White, (s, e) => OpenBackupFolder(), 130, 36);
+        var btnRefreshList = UITheme.CreateButton("🔄 Yenile", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshBackupsList(), 90, 36);
 
-        pnlBackupActions.Controls.Add(btnRefreshList);
-        pnlBackupActions.Controls.Add(btnOpenFolder);
-        pnlBackupActions.Controls.Add(btnRestoreSelected);
-        pnlBackupActions.Controls.Add(btnTakeBackupNow);
+        var flowActions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
+        flowActions.Controls.Add(btnTakeBackupNow);
+        flowActions.Controls.Add(btnRestoreSelected);
+        flowActions.Controls.Add(btnOpenFolder);
+        flowActions.Controls.Add(btnRefreshList);
+        pnlBackupActions.Controls.Add(flowActions);
 
-        btnTakeBackupNow.Dock = DockStyle.Left;
-        btnRestoreSelected.Dock = DockStyle.Left;
-        btnRestoreSelected.Margin = new Padding(10, 0, 0, 0);
-        btnOpenFolder.Dock = DockStyle.Left;
-        btnRefreshList.Dock = DockStyle.Right;
-
+        var gridCard = new CardPanel { Dock = DockStyle.Fill, Padding = new Padding(2) };
         UITheme.ApplyGridStyle(_gridBackups);
         _gridBackups.Dock = DockStyle.Fill;
         _gridBackups.ReadOnly = true;
         _gridBackups.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _gridBackups.MultiSelect = false;
+        _gridBackups.RowTemplate.Height = 32;
+        gridCard.Controls.Add(_gridBackups);
 
         _lblStatus.Dock = DockStyle.Bottom;
         _lblStatus.Height = 28;
-        _lblStatus.StateCommon.ShortText.Font = UITheme.SmallFont;
-        _lblStatus.StateCommon.ShortText.Color1 = UITheme.TextSecondary;
+        _lblStatus.Font = UITheme.SmallFont;
+        _lblStatus.ForeColor = UITheme.TextSecondary;
+        _lblStatus.TextAlign = ContentAlignment.MiddleLeft;
 
-        tabBackups.Controls.Add(_gridBackups);
+        tabBackups.Controls.Add(gridCard);
         tabBackups.Controls.Add(pnlBackupActions);
         tabBackups.Controls.Add(_lblStatus);
 
         // ==========================================
         // 2. SEKME: GOOGLE / GMAIL AYARLARI
         // ==========================================
+        var scrollSettings = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
         var flowSettings = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
+            AutoSize = true,
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
-            AutoScroll = true
+            Padding = new Padding(0, 0, 0, 20)
         };
 
         var lblInfoBanner = new Label
         {
             Text = "ℹ️ Google Drive & Gmail Otomatik Bulut Yedekleme Sistemi:\nVeritabanı yedeğiniz her akşam Z Raporu kapandığında ve programdan çıkış yapıldığında otomatik olarak şifreli .zip formatında paketlenir. Google Drive senkronizasyon klasörüne sessizce aktarılır ve istenirse doğrudan Gmail posta kutunuza e-posta eki olarak arşivlenir.",
             Font = UITheme.RegularFont,
-            ForeColor = UITheme.Primary,
+            ForeColor = Color.FromArgb(30, 64, 175),
             BackColor = Color.FromArgb(239, 246, 255),
             Padding = new Padding(12),
             Width = 780,
             Height = 85
         };
 
-        _txtGmail.Width = 350;
-        _txtGmail.CueHint.CueHintText = "ornek@gmail.com";
-        _txtPassword.Width = 350;
-        _txtPassword.CueHint.CueHintText = "Google Uygulama Şifresi (16 Haneli)";
-        _txtTargetDir.Width = 550;
+        _txtTargetDir.Width = 560;
+        _txtGmail.Width = 400;
+        _txtPassword.Width = 400;
 
         var btnBrowse = UITheme.CreateButton("📁 Gözat", UITheme.Secondary, Color.White, (s, e) =>
         {
@@ -117,13 +186,13 @@ public class CloudBackupManageDialog : BaseModernForm
             {
                 _txtTargetDir.Text = fbd.SelectedPath;
             }
-        }, 80, 32);
+        }, 90, 32);
 
         var pnlDirRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
         pnlDirRow.Controls.Add(_txtTargetDir);
         pnlDirRow.Controls.Add(btnBrowse);
 
-        var btnTest = UITheme.CreateButton("🔌 Google / Gmail Bağlantısını Sına", Color.FromArgb(13, 148, 136), Color.White, (s, e) => TestConnection(), 260, 36);
+        var btnTest = UITheme.CreateButton("🔌 Google / Gmail Bağlantısını Sına", Color.FromArgb(13, 148, 136), Color.White, (s, e) => TestConnection(), 280, 36);
 
         flowSettings.Controls.Add(lblInfoBanner);
         flowSettings.Controls.Add(new Label { Text = "Hedef Bulut / Drive Klasörü Konumu:", Font = new Font(UITheme.RegularFont, FontStyle.Bold), Margin = new Padding(0, 15, 0, 4) });
@@ -141,7 +210,7 @@ public class CloudBackupManageDialog : BaseModernForm
             Font = UITheme.SmallFont, 
             ForeColor = UITheme.TextMuted,
             Width = 750,
-            Margin = new Padding(0, 2, 0, 12) 
+            Margin = new Padding(0, 4, 0, 12) 
         });
 
         flowSettings.Controls.Add(btnTest);
@@ -152,20 +221,22 @@ public class CloudBackupManageDialog : BaseModernForm
         flowSettings.Controls.Add(_chkDaily);
         flowSettings.Controls.Add(_chkSendGmail);
 
-        tabSettings.Controls.Add(flowSettings);
+        scrollSettings.Controls.Add(flowSettings);
+        tabSettings.Controls.Add(scrollSettings);
 
         tabs.TabPages.Add(tabBackups);
         tabs.TabPages.Add(tabSettings);
 
-        // BaseModernForm ContentTable yerine tabs kontrolünü ekle
-        ContentTable.Visible = false;
-        if (Controls.Find("actionPanel", true).FirstOrDefault() is Panel actionPanel)
-        {
-            var container = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12) };
-            container.Controls.Add(tabs);
-            Controls.Add(container);
-            container.BringToFront();
-        }
+        var centerPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(15) };
+        centerPanel.Controls.Add(tabs);
+
+        Controls.Add(centerPanel);
+        Controls.Add(bottomPanel);
+        Controls.Add(headerPanel);
+
+        headerPanel.SendToBack();
+        bottomPanel.SendToBack();
+        centerPanel.BringToFront();
     }
 
     private void LoadConfigData()
@@ -195,26 +266,33 @@ public class CloudBackupManageDialog : BaseModernForm
 
         if (showMessage)
         {
-            MessageBox.Show("Bulut yedekleme yapılandırmanız başarıyla kaydedildi!", "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("Bulut yedekleme ve Gmail ayarlarınız başarıyla kaydedildi!", "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 
-    private void TestConnection()
+    private async void TestConnection()
     {
         string email = _txtGmail.Text.Trim();
         string pass = _txtPassword.Text.Trim();
 
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(pass))
         {
-            MessageBox.Show("Lütfen Gmail adresinizi ve uygulama şifrenizi giriniz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Lütfen test için Gmail e-posta adresinizi ve uygulama şifrenizi giriniz.", "Eksik Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
         Cursor = Cursors.WaitCursor;
         try
         {
-            var res = CloudBackupService.TestGmailConnection(email, pass);
-            MessageBox.Show(res.Message, res.Success ? "Bağlantı Başarılı" : "Bağlantı Hatası", MessageBoxButtons.OK, res.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            var res = await Task.Run(() => CloudBackupService.TestGmailConnection(email, pass));
+            if (res.Success)
+            {
+                MessageBox.Show(res.Message, "Bağlantı Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show(res.Message, "Bağlantı Başarısız", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
         finally
         {
@@ -222,23 +300,15 @@ public class CloudBackupManageDialog : BaseModernForm
         }
     }
 
-    private void TakeBackupNow()
+    private async void TakeBackupNow()
     {
         SaveSettings(showMessage: false);
 
         Cursor = Cursors.WaitCursor;
         try
         {
-            var res = CloudBackupService.ExecuteBackup(silent: false);
-            if (res.Success)
-            {
-                MessageBox.Show(res.Message, "Yedekleme Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                RefreshBackupsList();
-            }
-            else
-            {
-                MessageBox.Show(res.Message, "Yedekleme Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            var result = await Task.Run(() => CloudBackupService.ExecuteBackup(silent: false));
+            RefreshBackupsList();
         }
         finally
         {
@@ -246,46 +316,26 @@ public class CloudBackupManageDialog : BaseModernForm
         }
     }
 
-    private void RefreshBackupsList()
+    private async void RestoreSelectedBackup()
     {
-        var backups = CloudBackupService.GetExistingBackups();
-        _gridBackups.DataSource = backups;
-
-        if (_gridBackups.Columns["FullPath"] is { } colPath) colPath.Visible = false;
-        if (_gridBackups.Columns["SizeMb"] is { } colSize) colSize.Visible = false;
-        if (_gridBackups.Columns["CreatedAt"] is { } colCreated) colCreated.Visible = false;
-
-        if (_gridBackups.Columns["FileName"] is { } colName)
+        if (_gridBackups.CurrentRow == null)
         {
-            colName.HeaderText = "Yedek Dosyası";
-            colName.Width = 360;
-        }
-        if (_gridBackups.Columns["FormattedSize"] is { } colSizeFmt)
-        {
-            colSizeFmt.HeaderText = "Boyut";
-            colSizeFmt.Width = 120;
-            colSizeFmt.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
-        }
-        if (_gridBackups.Columns["FormattedDate"] is { } colDateFmt)
-        {
-            colDateFmt.HeaderText = "Yedek Tarihi";
-            colDateFmt.Width = 160;
+            MessageBox.Show("Lütfen geri yüklemek istediğiniz yedek dosyasını tablodan seçiniz.", "Yedek Seçilmedi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
         }
 
-        _lblStatus.Text = $"Toplam {backups.Count} adet bulut/yerel yedek arşivi bulundu. Hedef Dizin: {CloudBackupService.GetBackupTargetDirectory()}";
-    }
+        string? fullPath = _gridBackups.CurrentRow.Cells["Dosya Yolu"]?.Value?.ToString();
+        string? fileName = _gridBackups.CurrentRow.Cells["Dosya Adı"]?.Value?.ToString();
 
-    private void RestoreSelectedBackup()
-    {
-        if (_gridBackups.CurrentRow?.DataBoundItem is not BackupFileInfo backup)
+        if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath))
         {
-            MessageBox.Show("Lütfen geri yüklemek istediğiniz yedeği tablodan seçiniz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Seçilen yedek dosyası diskte bulunamadı.", "Dosya Yok", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
 
         var confirm = MessageBox.Show(
-            $"DİKKAT: Veritabanı '{backup.FileName}' isimli yedeğe geri döndürülecektir!\n\nSeçilen Yedeğin Tarihi: {backup.FormattedDate}\n\nBu işlem mevcut tüm anlık verilerin üzerine yazacaktır. Devam etmek istiyor musunuz?",
-            "Geri Yükleme Onayı",
+            $"DİKKAT! Seçilen yedeği geri yüklemek üzeresiniz:\n\nDosya: {fileName}\n\nBu işlem mevcut veritabanının üzerine seçilen yedeği yazacaktır. Devam etmek istiyor musunuz?",
+            "Veritabanı Geri Yükleme Onayı",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
             MessageBoxDefaultButton.Button2
@@ -296,16 +346,14 @@ public class CloudBackupManageDialog : BaseModernForm
         Cursor = Cursors.WaitCursor;
         try
         {
-            var res = CloudBackupService.RestoreBackup(backup.FullPath);
-            if (res.Success)
+            var result = await Task.Run(() => CloudBackupService.RestoreBackup(fullPath));
+            if (result.Success)
             {
-                MessageBox.Show(res.Message, "Geri Yükleme Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                DialogResult = DialogResult.OK;
-                Close();
+                MessageBox.Show(result.Message, "Geri Yükleme Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
-                MessageBox.Show(res.Message, "Geri Yükleme Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(result.Message, "Geri Yükleme Başarısız", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
         finally
@@ -316,21 +364,59 @@ public class CloudBackupManageDialog : BaseModernForm
 
     private void OpenBackupFolder()
     {
+        string dir = CloudBackupService.GetBackupTargetDirectory();
+        if (Directory.Exists(dir))
+        {
+            Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
+        }
+        else
+        {
+            MessageBox.Show($"Klasör henüz oluşturulmamış:\n{dir}", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
+    private void RefreshBackupsList()
+    {
         try
         {
-            string dir = CloudBackupService.GetBackupTargetDirectory();
-            if (Directory.Exists(dir))
+            var backups = CloudBackupService.GetExistingBackups();
+
+            var dt = new System.Data.DataTable();
+            dt.Columns.Add("Dosya Adı");
+            dt.Columns.Add("Boyut");
+            dt.Columns.Add("Yedek Tarihi");
+            dt.Columns.Add("Dosya Yolu");
+
+            foreach (var b in backups)
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = dir,
-                    UseShellExecute = true
-                });
+                dt.Rows.Add(b.FileName, b.FormattedSize, b.CreatedAt.ToString("dd.MM.yyyy HH:mm:ss"), b.FullPath);
             }
+
+            _gridBackups.DataSource = dt;
+
+            if (_gridBackups.Columns.Contains("Dosya Yolu"))
+            {
+                _gridBackups.Columns["Dosya Yolu"].Visible = false;
+            }
+
+            if (_gridBackups.Columns.Contains("Dosya Adı"))
+            {
+                _gridBackups.Columns["Dosya Adı"].FillWeight = 45;
+            }
+            if (_gridBackups.Columns.Contains("Boyut"))
+            {
+                _gridBackups.Columns["Boyut"].FillWeight = 20;
+            }
+            if (_gridBackups.Columns.Contains("Yedek Tarihi"))
+            {
+                _gridBackups.Columns["Yedek Tarihi"].FillWeight = 35;
+            }
+
+            _lblStatus.Text = $"Toplam {backups.Count} adet arşivlenmiş yedek listelendi. Klasör: {CloudBackupService.GetBackupTargetDirectory()}";
         }
         catch (Exception ex)
         {
-            MessageBox.Show("Klasör açılamadı: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _lblStatus.Text = $"Yedekler listelenirken hata: {ex.Message}";
         }
     }
 }

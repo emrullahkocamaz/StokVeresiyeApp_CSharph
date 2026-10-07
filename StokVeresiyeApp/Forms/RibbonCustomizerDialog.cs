@@ -13,11 +13,11 @@ namespace StokVeresiyeApp.Forms;
 
 public class RibbonTabConfig
 {
-    public bool IsLocked { get; set; } = true;
+    public bool IsLocked { get; set; } = false;
     public Dictionary<string, bool> TabVisibility { get; set; } = new();
 }
 
-public class RibbonCustomizerDialog : BaseModernForm
+public class RibbonCustomizerDialog : KryptonForm
 {
     private static readonly string ConfigPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -29,6 +29,7 @@ public class RibbonCustomizerDialog : BaseModernForm
     private readonly Action _onLayoutChanged;
     private readonly FlowLayoutPanel _flowTabs = new();
     private readonly KryptonCheckBox _chkLock = new();
+    private KryptonButton _btnSave = new();
     private readonly Dictionary<string, KryptonCheckBox> _tabCheckBoxes = new();
 
     public static RibbonTabConfig LoadConfig()
@@ -44,7 +45,7 @@ public class RibbonCustomizerDialog : BaseModernForm
         }
         catch { }
 
-        return new RibbonTabConfig { IsLocked = true };
+        return new RibbonTabConfig { IsLocked = false };
     }
 
     public static void SaveConfig(RibbonTabConfig config)
@@ -61,23 +62,37 @@ public class RibbonCustomizerDialog : BaseModernForm
 
     public static void ApplyToRibbon(KryptonRibbon ribbon)
     {
-        var config = LoadConfig();
-        if (config.TabVisibility == null || config.TabVisibility.Count == 0) return;
-
-        foreach (KryptonRibbonTab tab in ribbon.RibbonTabs)
+        try
         {
-            if (config.TabVisibility.TryGetValue(tab.Text, out bool isVisible))
+            var config = LoadConfig();
+            if (config.TabVisibility == null || config.TabVisibility.Count == 0) return;
+
+            foreach (KryptonRibbonTab tab in ribbon.RibbonTabs)
             {
-                tab.Visible = isVisible;
+                if (config.TabVisibility.TryGetValue(tab.Text, out bool isVisible))
+                {
+                    tab.Visible = isVisible;
+                }
             }
         }
+        catch { }
     }
 
-    public RibbonCustomizerDialog(KryptonRibbon ribbon, Action onLayoutChanged) 
-        : base("🧩 Menü & Sekme Düzenleyici (Puzzle Modu)", 620, 520)
+    public RibbonCustomizerDialog(KryptonRibbon ribbon, Action onLayoutChanged)
     {
         _ribbon = ribbon;
         _onLayoutChanged = onLayoutChanged;
+
+        Text = "🧩 Menü & Sekme Düzenleyici (Puzzle Modu)";
+        ClientSize = new Size(760, 580);
+        MinimumSize = new Size(700, 500);
+        StartPosition = FormStartPosition.CenterParent;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false;
+        MinimizeBox = false;
+        BackColor = UITheme.Background;
+        Font = UITheme.RegularFont;
+        Icon = AppResources.AppIcon;
 
         BuildInterface();
         LoadCurrentState();
@@ -85,57 +100,126 @@ public class RibbonCustomizerDialog : BaseModernForm
 
     private void BuildInterface()
     {
-        BtnSave.Text = "🔒 Kilitle ve Kaydet";
-        BtnSave.Click += (s, e) => SaveAndApply();
+        // 1. Üst Başlık & Açıklama Paneli
+        var headerPanel = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 110,
+            BackColor = UITheme.CardBg,
+            Padding = new Padding(20, 12, 20, 10)
+        };
 
-        var container = new Panel { Dock = DockStyle.Fill, Padding = new Padding(15) };
+        var lblTitle = new Label
+        {
+            Text = "🧩 Ribbon Menü & Modül Düzenleyicisi (Puzzle Modu)",
+            Font = UITheme.HeaderFont,
+            ForeColor = UITheme.TextPrimary,
+            Dock = DockStyle.Top,
+            Height = 30
+        };
 
         var lblBanner = new Label
         {
-            Text = "🧩 Ribbon Menü Puzzle Düzenleyicisi:\nKullanmadığınız menü sekmelerini kapatabilir veya ihtiyacınız olanları açabilirsiniz. Düzenlemeniz bittiğinde 'Kilitle ve Kaydet' butonuna basarak yanlışlıkla menülerin silinmesini veya değişmesini engelleyebilirsiniz.",
+            Text = "İşletmenizde kullanmadığınız menü sekmelerini kapatabilir veya ihtiyacınız olanları açabilirsiniz. Seçim yaptığınız anda üst menü canlı olarak güncellenir. Düzenlemeniz bittiğinde 'Kilitle ve Kaydet' butonuna basarak yanlışlıkla menülerin gizlenmesini önleyebilirsiniz.",
             Font = UITheme.RegularFont,
-            ForeColor = UITheme.Primary,
+            ForeColor = Color.FromArgb(30, 64, 175),
             BackColor = Color.FromArgb(239, 246, 255),
-            Padding = new Padding(10),
-            Dock = DockStyle.Top,
-            Height = 70
+            Padding = new Padding(10, 6, 10, 6),
+            Dock = DockStyle.Fill
         };
 
-        _flowTabs.Dock = DockStyle.Fill;
-        _flowTabs.FlowDirection = FlowDirection.TopDown;
-        _flowTabs.WrapContents = false;
-        _flowTabs.AutoScroll = true;
-        _flowTabs.Padding = new Padding(0, 15, 0, 10);
+        headerPanel.Controls.Add(lblBanner);
+        headerPanel.Controls.Add(lblTitle);
 
-        var pnlLockBar = new Panel { Dock = DockStyle.Bottom, Height = 42 };
-        _chkLock.Text = "🔒 Menü Düzenini Kilitle (Yetkisiz kullanıcılar değiştiremesin)";
+        // 2. Alt Butonlar & Kilitleme Paneli
+        var bottomPanel = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 65,
+            BackColor = UITheme.CardBg,
+            Padding = new Padding(20, 14, 20, 14)
+        };
+
+        _chkLock.Text = "🔒 Menü Düzenini Kilitle (Yetkisizler değiştiremesin)";
         _chkLock.Font = new Font(UITheme.RegularFont, FontStyle.Bold);
         _chkLock.Dock = DockStyle.Left;
-        _chkLock.Checked = true;
-        _chkLock.CheckedChanged += (s, e) => UpdateLockState();
+        _chkLock.AutoSize = true;
 
-        var btnReset = UITheme.CreateButton("🔄 Tüm Menüleri Aç", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => ResetAllTabs(), 150, 32);
+        var btnCancel = UITheme.CreateKryptonButton("Kapat", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => Close(), 90, 36);
+        btnCancel.Dock = DockStyle.Right;
+
+        var btnReset = UITheme.CreateKryptonButton("🔄 Tümünü Aç", Color.FromArgb(241, 245, 249), UITheme.TextPrimary, (s, e) => ResetAllTabs(), 125, 36);
         btnReset.Dock = DockStyle.Right;
 
-        pnlLockBar.Controls.Add(_chkLock);
-        pnlLockBar.Controls.Add(btnReset);
+        _btnSave = UITheme.CreateKryptonButton("💾 Kaydet", UITheme.Primary, Color.White, (s, e) => SaveAndApply(), 160, 36);
+        _btnSave.Dock = DockStyle.Right;
 
-        container.Controls.Add(_flowTabs);
-        container.Controls.Add(pnlLockBar);
-        container.Controls.Add(lblBanner);
+        _chkLock.CheckedChanged += (s, e) =>
+        {
+            _btnSave.Text = _chkLock.Checked ? "🔒 Kilitle ve Kaydet" : "💾 Değişiklikleri Kaydet";
+            _btnSave.StateCommon.Back.Color1 = _chkLock.Checked ? Color.FromArgb(234, 88, 12) : UITheme.Primary;
+            _btnSave.StateCommon.Back.Color2 = _btnSave.StateCommon.Back.Color1;
+        };
 
-        ContentTable.Visible = false;
-        Controls.Add(container);
-        container.BringToFront();
+        bottomPanel.Controls.Add(_chkLock);
+        bottomPanel.Controls.Add(btnCancel);
+        bottomPanel.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 10 });
+        bottomPanel.Controls.Add(btnReset);
+        bottomPanel.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 10 });
+        bottomPanel.Controls.Add(_btnSave);
+
+        // 3. Orta Kaydırılabilir Liste Alanı
+        var listContainer = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            Padding = new Padding(20, 12, 20, 12)
+        };
+
+        _flowTabs.Dock = DockStyle.Top;
+        _flowTabs.AutoSize = true;
+        _flowTabs.FlowDirection = FlowDirection.TopDown;
+        _flowTabs.WrapContents = false;
+        _flowTabs.Padding = new Padding(0);
+
+        listContainer.Controls.Add(_flowTabs);
+
+        Controls.Add(listContainer);
+        Controls.Add(bottomPanel);
+        Controls.Add(headerPanel);
+
+        headerPanel.SendToBack();
+        bottomPanel.SendToBack();
+        listContainer.BringToFront();
     }
 
     private void LoadCurrentState()
     {
         var config = LoadConfig();
         _chkLock.Checked = config.IsLocked;
+        _btnSave.Text = config.IsLocked ? "🔒 Kilitle ve Kaydet" : "💾 Değişiklikleri Kaydet";
+        if (config.IsLocked)
+        {
+            _btnSave.StateCommon.Back.Color1 = Color.FromArgb(234, 88, 12);
+            _btnSave.StateCommon.Back.Color2 = Color.FromArgb(234, 88, 12);
+        }
 
         _flowTabs.Controls.Clear();
         _tabCheckBoxes.Clear();
+
+        if (_ribbon.RibbonTabs.Count == 0)
+        {
+            var lblEmpty = new Label
+            {
+                Text = "Görüntülenecek menü sekmesi bulunamadı.",
+                Font = UITheme.RegularFont,
+                ForeColor = UITheme.TextSecondary,
+                AutoSize = true,
+                Margin = new Padding(10)
+            };
+            _flowTabs.Controls.Add(lblEmpty);
+            return;
+        }
 
         foreach (KryptonRibbonTab tab in _ribbon.RibbonTabs)
         {
@@ -147,62 +231,46 @@ public class RibbonCustomizerDialog : BaseModernForm
 
             var card = new CardPanel
             {
-                Width = 560,
-                Height = 44,
-                Padding = new Padding(12, 6, 12, 6),
+                Width = 700,
+                Height = 54,
+                Padding = new Padding(15, 8, 15, 8),
                 Margin = new Padding(0, 0, 0, 8)
             };
 
             var chk = new KryptonCheckBox
             {
-                Text = $"{tab.Text} Sekmesi",
-                Font = new Font(UITheme.RegularFont, FontStyle.Bold),
+                Text = $"  {tab.Text}",
+                Font = new Font("Segoe UI", 10.5f, FontStyle.Bold),
                 Checked = isVisible,
                 Dock = DockStyle.Left,
                 AutoSize = true
+            };
+
+            var lblDesc = new Label
+            {
+                Text = isVisible ? "✅ Açık (Menüde Görünüyor)" : "❌ Gizli (Menüde Kapalı)",
+                Font = UITheme.SmallFont,
+                ForeColor = isVisible ? UITheme.Success : UITheme.TextMuted,
+                Dock = DockStyle.Right,
+                TextAlign = ContentAlignment.MiddleRight,
+                Width = 200
             };
 
             // Canlı önizleme: Kullanıcı tıkladıkça ekranda canlı değişsin (Puzzle gibi)
             chk.CheckedChanged += (s, e) =>
             {
                 tab.Visible = chk.Checked;
+                lblDesc.Text = chk.Checked ? "✅ Açık (Menüde Görünüyor)" : "❌ Gizli (Menüde Kapalı)";
+                lblDesc.ForeColor = chk.Checked ? UITheme.Success : UITheme.TextMuted;
                 _onLayoutChanged?.Invoke();
             };
 
             _tabCheckBoxes[tab.Text] = chk;
 
-            var lblDesc = new Label
-            {
-                Text = chk.Checked ? "Açık (Görünür)" : "Kapalı (Gizli)",
-                Font = UITheme.SmallFont,
-                ForeColor = chk.Checked ? UITheme.Success : UITheme.TextMuted,
-                Dock = DockStyle.Right,
-                TextAlign = ContentAlignment.MiddleRight,
-                Width = 120
-            };
-
-            chk.CheckedChanged += (s, e) =>
-            {
-                lblDesc.Text = chk.Checked ? "Açık (Görünür)" : "Kapalı (Gizli)";
-                lblDesc.ForeColor = chk.Checked ? UITheme.Success : UITheme.TextMuted;
-            };
-
             card.Controls.Add(lblDesc);
             card.Controls.Add(chk);
             _flowTabs.Controls.Add(card);
         }
-
-        UpdateLockState();
-    }
-
-    private void UpdateLockState()
-    {
-        bool isLocked = _chkLock.Checked;
-        foreach (var chk in _tabCheckBoxes.Values)
-        {
-            chk.Enabled = !isLocked;
-        }
-        BtnSave.Text = isLocked ? "🔒 Kilitli Olarak Kaydet" : "💾 Değişiklikleri Kaydet";
     }
 
     private void ResetAllTabs()
@@ -224,17 +292,17 @@ public class RibbonCustomizerDialog : BaseModernForm
         foreach (var kvp in _tabCheckBoxes)
         {
             config.TabVisibility[kvp.Key] = kvp.Value.Checked;
-            if (_ribbon.RibbonTabs.FirstOrDefault(t => t.Text == kvp.Key) is KryptonRibbonTab tab)
-            {
-                tab.Visible = kvp.Value.Checked;
-            }
         }
 
         SaveConfig(config);
+        ApplyToRibbon(_ribbon);
         _onLayoutChanged?.Invoke();
 
-        MessageBox.Show("Menü düzeni başarıyla kilitlendi ve kaydedildi!", "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        DialogResult = DialogResult.OK;
+        string lockMessage = config.IsLocked 
+            ? "Menü düzeni başarıyla kilitlendi ve kaydedildi!" 
+            : "Menü düzeni başarıyla kaydedildi!";
+
+        MessageBox.Show(lockMessage, "Menü Düzeni Kaydedildi", MessageBoxButtons.OK, MessageBoxIcon.Information);
         Close();
     }
 }

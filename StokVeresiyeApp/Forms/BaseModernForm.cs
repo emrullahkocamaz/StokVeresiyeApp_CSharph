@@ -124,6 +124,12 @@ public class BaseModernForm : KryptonForm
     {
         try
         {
+            // Eğer ContentTable kullanılmıyorsa veya satır eklenmemişse alt sınıfın kendi boyutunu koru
+            if (!ContentTable.Visible || ContentTable.RowCount == 0)
+            {
+                return;
+            }
+
             // ContentTable satırlarının ve elemanlarının toplam yüksekliğini hesapla
             int tableH = 0;
             foreach (RowStyle rs in ContentTable.RowStyles)

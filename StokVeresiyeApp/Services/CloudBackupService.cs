@@ -265,7 +265,7 @@ public static class CloudBackupService
                 EnableSsl = true,
                 UseDefaultCredentials = false,
                 Credentials = new NetworkCredential(_config.GmailAddress, _config.GmailAppPassword.Replace(" ", "")),
-                Timeout = 120000
+                Timeout = 15000
             };
 
             smtp.Send(message);

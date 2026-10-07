@@ -187,12 +187,12 @@ public class MainForm : KryptonForm
         // Günlük Otomatik Bulut Yedekleme Kontrolü
         Task.Run(() => CloudBackupService.AutoCheckDailyBackup());
 
-        // Program Kapanışında Otomatik Bulut Yedekleme (Aktifse sessiz çalışır)
+        // Program Kapanışında Otomatik Bulut Yedekleme (Aktifse ve oturum kapatma değilse çalışır)
         FormClosing += (s, e) =>
         {
             try
             {
-                if (CloudBackupService.Config.BackupOnExit)
+                if (!IsLoggedOut && CloudBackupService.Config.BackupOnExit)
                 {
                     CloudBackupService.ExecuteBackup(silent: true);
                 }

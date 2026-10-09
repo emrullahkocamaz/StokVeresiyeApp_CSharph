@@ -1,9 +1,10 @@
-﻿using System.Data;
+using System.Data;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Web;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Models;
 using StokVeresiyeApp.Services;
@@ -257,7 +258,7 @@ public static class MobileScannerService
 
         try
         {
-            if (path == "/" || path == "/index.html" || path == "/scanner")
+            if (path == "/" || path == "/index.html" || path == "/scanner" || path == "/portal")
             {
                 await ServeScannerAppAsync(res);
             }
@@ -269,9 +270,29 @@ public static class MobileScannerService
             {
                 await HandleSendDesktopApiAsync(req, res);
             }
+            else if (path == "/api/summary")
+            {
+                await HandleGetSummaryApiAsync(req, res);
+            }
+            else if (path == "/api/debtors")
+            {
+                await HandleGetDebtorsApiAsync(req, res);
+            }
+            else if (path == "/api/accounts")
+            {
+                await HandleGetAccountsApiAsync(req, res);
+            }
+            else if (path == "/api/add-collection")
+            {
+                await HandleAddCollectionApiAsync(req, res);
+            }
+            else if (path == "/api/whatsapp-webhook")
+            {
+                await HandleWhatsAppWebhookApiAsync(req, res);
+            }
             else if (path == "/api/ping")
             {
-                await WriteJsonAsync(res, new { status = "ok", app = "BilgeStok", version = "2.1.0" });
+                await WriteJsonAsync(res, new { status = "ok", app = "Bilensis", version = "2.6.0" });
             }
             else
             {
@@ -471,6 +492,290 @@ HAVING COALESCE(SUM(CASE WHEN sm.MovementType IN ('Gelen', 'İade Giriş') THEN 
         res.Close();
     }
 
+    private static async Task HandleGetSummaryApiAsync(HttpListenerRequest req, HttpListenerResponse res)
+    {
+        try
+        {
+            string today = DateTime.Today.ToString("yyyy-MM-dd");
+
+            // Satışlar
+            var dtSales = Database.Query(@"
+SELECT 
+    COALESCE(SUM(CASE WHEN Method = 'Nakit' THEN Amount ELSE 0 END), 0) AS CashSale,
+    COALESCE(SUM(CASE WHEN Method = 'Kredi Kartı' THEN Amount ELSE 0 END), 0) AS PosSale,
+    COALESCE(SUM(CASE WHEN Method = 'Veresiye' THEN Amount ELSE 0 END), 0) AS CreditSale,
+    COALESCE(SUM(Amount), 0) AS TotalSale,
+    COUNT(*) AS SaleCount
+FROM AccountMovements
+WHERE TransactionType = 'Satış' AND MovementDate LIKE @today;",
+                ("@today", today + "%")
+            );
+
+            double cashSale = 0, posSale = 0, creditSale = 0, totalSale = 0;
+            int saleCount = 0;
+            if (dtSales.Rows.Count > 0)
+            {
+                var r = dtSales.Rows[0];
+                cashSale = Convert.ToDouble(r["CashSale"]);
+                posSale = Convert.ToDouble(r["PosSale"]);
+                creditSale = Convert.ToDouble(r["CreditSale"]);
+                totalSale = Convert.ToDouble(r["TotalSale"]);
+                saleCount = Convert.ToInt32(r["SaleCount"]);
+            }
+
+            // Tahsilatlar
+            var dtCol = Database.Query(@"
+SELECT COALESCE(SUM(Amount), 0) AS TotalCol, COUNT(*) AS ColCount
+FROM AccountMovements
+WHERE TransactionType = 'Tahsilat' AND MovementDate LIKE @today;",
+                ("@today", today + "%")
+            );
+            double totalCol = dtCol.Rows.Count > 0 ? Convert.ToDouble(dtCol.Rows[0]["TotalCol"]) : 0;
+
+            // Kasa Net Nakit
+            var dtCash = Database.Query(@"
+SELECT 
+    COALESCE(SUM(CASE WHEN TransactionType IN ('Satış', 'Tahsilat') AND Method = 'Nakit' THEN Amount 
+                      WHEN TransactionType IN ('Ödeme', 'Alış') AND Method = 'Nakit' THEN -Amount 
+                      ELSE 0 END), 0) AS NetCash
+FROM AccountMovements;");
+            double netCash = dtCash.Rows.Count > 0 ? Convert.ToDouble(dtCash.Rows[0]["NetCash"]) : 0;
+
+            // Kritik Stok Sayısı
+            var dtCrit = Database.Query(@"
+SELECT COUNT(*) AS CritCount
+FROM Products p
+WHERE p.IsActive = 1 AND
+      (p.OpeningStock + 
+       COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Gelen', 'İade Giriş')), 0) -
+       COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Satış', 'Satılan', 'Fire', 'Transfer Çıkış')), 0)
+      ) <= p.MinStockLevel;");
+            int critCount = dtCrit.Rows.Count > 0 ? Convert.ToInt32(dtCrit.Rows[0]["CritCount"]) : 0;
+
+            // Toplam Alacak & Borçlu Sayısı
+            var dtDebtors = Database.Query(@"
+SELECT COUNT(*) AS DebtorCount, COALESCE(SUM(Balance), 0) AS TotalDebt
+FROM Accounts
+WHERE IsActive = 1 AND Type = 'Müşteri' AND Balance > 0;");
+            int debtorCount = dtDebtors.Rows.Count > 0 ? Convert.ToInt32(dtDebtors.Rows[0]["DebtorCount"]) : 0;
+            double totalDebt = dtDebtors.Rows.Count > 0 ? Convert.ToDouble(dtDebtors.Rows[0]["TotalDebt"]) : 0;
+
+            await WriteJsonAsync(res, new
+            {
+                success = true,
+                date = DateTime.Now.ToString("dd.MM.yyyy HH:mm"),
+                totalSale,
+                cashSale,
+                posSale,
+                creditSale,
+                saleCount,
+                totalCol,
+                netCash,
+                critCount,
+                debtorCount,
+                totalDebt
+            });
+        }
+        catch (Exception ex)
+        {
+            await WriteJsonAsync(res, new { success = false, message = ex.Message });
+        }
+    }
+
+    private static async Task HandleGetDebtorsApiAsync(HttpListenerRequest req, HttpListenerResponse res)
+    {
+        try
+        {
+            string? query = req.QueryString["q"]?.Trim();
+            string sql = @"
+SELECT TOP 40 Id, Code, Name, Phone, Balance
+FROM Accounts
+WHERE IsActive = 1 AND Type = 'Müşteri' AND Balance > 0";
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                sql += " AND (Name LIKE @q OR Phone LIKE @q)";
+            }
+            sql += " ORDER BY Balance DESC;";
+
+            var dt = string.IsNullOrWhiteSpace(query)
+                ? Database.Query(sql)
+                : Database.Query(sql, ("@q", "%" + query + "%"));
+
+            var list = new List<object>();
+            foreach (DataRow r in dt.Rows)
+            {
+                list.Add(new
+                {
+                    id = Convert.ToInt64(r["Id"]),
+                    code = r["Code"]?.ToString() ?? "",
+                    name = r["Name"]?.ToString() ?? "",
+                    phone = r["Phone"]?.ToString() ?? "",
+                    balance = Convert.ToDouble(r["Balance"])
+                });
+            }
+
+            await WriteJsonAsync(res, new { success = true, debtors = list });
+        }
+        catch (Exception ex)
+        {
+            await WriteJsonAsync(res, new { success = false, message = ex.Message });
+        }
+    }
+
+    private static async Task HandleGetAccountsApiAsync(HttpListenerRequest req, HttpListenerResponse res)
+    {
+        try
+        {
+            string? query = req.QueryString["q"]?.Trim();
+            string sql = "SELECT TOP 50 Id, Name, Phone, Balance FROM Accounts WHERE IsActive = 1";
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                sql += " AND (Name LIKE @q OR Phone LIKE @q)";
+            }
+            sql += " ORDER BY Name ASC;";
+
+            var dt = string.IsNullOrWhiteSpace(query)
+                ? Database.Query(sql)
+                : Database.Query(sql, ("@q", "%" + query + "%"));
+
+            var list = new List<object>();
+            foreach (DataRow r in dt.Rows)
+            {
+                list.Add(new
+                {
+                    id = Convert.ToInt64(r["Id"]),
+                    name = r["Name"]?.ToString() ?? "",
+                    phone = r["Phone"]?.ToString() ?? "",
+                    balance = Convert.ToDouble(r["Balance"])
+                });
+            }
+
+            await WriteJsonAsync(res, new { success = true, accounts = list });
+        }
+        catch (Exception ex)
+        {
+            await WriteJsonAsync(res, new { success = false, message = ex.Message });
+        }
+    }
+
+    private static async Task HandleAddCollectionApiAsync(HttpListenerRequest req, HttpListenerResponse res)
+    {
+        try
+        {
+            long accountId = 0;
+            double amount = 0;
+            string method = "Nakit";
+            string note = "Mobil Tahsilat";
+
+            if (req.HttpMethod == "POST" && req.HasEntityBody)
+            {
+                using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
+                string body = await reader.ReadToEndAsync();
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("accountId", out var aProp)) accountId = aProp.GetInt64();
+                if (doc.RootElement.TryGetProperty("amount", out var mProp)) amount = mProp.GetDouble();
+                if (doc.RootElement.TryGetProperty("method", out var methProp)) method = methProp.GetString() ?? "Nakit";
+                if (doc.RootElement.TryGetProperty("note", out var nProp)) note = nProp.GetString() ?? "Mobil Tahsilat";
+            }
+            else
+            {
+                if (long.TryParse(req.QueryString["accountId"], out var a)) accountId = a;
+                if (double.TryParse(req.QueryString["amount"], out var m)) amount = m;
+                if (!string.IsNullOrWhiteSpace(req.QueryString["method"])) method = req.QueryString["method"]!;
+                if (!string.IsNullOrWhiteSpace(req.QueryString["note"])) note = req.QueryString["note"]!;
+            }
+
+            if (accountId <= 0 || amount <= 0)
+            {
+                await WriteJsonAsync(res, new { success = false, message = "Geçerli bir müşteri ve pozitif tutar giriniz." });
+                return;
+            }
+
+            string nowStr = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+            // Cari Hareketi Ekle
+            Database.Execute(@"
+INSERT INTO AccountMovements (MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note)
+VALUES (@date, @accId, 'Tahsilat', @doc, @amt, @mth, 'Merkez Kasa', @note);",
+                ("@date", nowStr),
+                ("@accId", accountId),
+                ("@doc", "MOB-" + DateTime.Now.ToString("yyMMddHHmm")),
+                ("@amt", amount),
+                ("@mth", method),
+                ("@note", note)
+            );
+
+            // Bakiyeyi Düş
+            Database.Execute("UPDATE Accounts SET Balance = Balance - @amt WHERE Id = @accId;",
+                ("@amt", amount),
+                ("@accId", accountId)
+            );
+
+            // Yeni Bakiye ve Müşteri Adı
+            var dtAcc = Database.Query("SELECT Name, Balance, Phone FROM Accounts WHERE Id = @accId;", ("@accId", accountId));
+            string accName = dtAcc.Rows.Count > 0 ? dtAcc.Rows[0]["Name"].ToString() ?? "" : "";
+            double newBalance = dtAcc.Rows.Count > 0 ? Convert.ToDouble(dtAcc.Rows[0]["Balance"]) : 0;
+            string accPhone = dtAcc.Rows.Count > 0 ? dtAcc.Rows[0]["Phone"]?.ToString() ?? "" : "";
+
+            // Denetim Günlüğü
+            Database.Execute(@"
+INSERT INTO AuditLogs (LogDate, EntityName, Action, Details)
+VALUES (@date, 'Cari', 'Mobil Tahsilat', @det);",
+                ("@date", nowStr),
+                ("@det", $"{accName} carisinden {amount:N2} ₺ {method} tahsilat alındı. Kalan Bakiye: {newBalance:N2} ₺")
+            );
+
+            await WriteJsonAsync(res, new
+            {
+                success = true,
+                message = $"✅ {accName} carisinden {amount:N2} ₺ tahsilat sisteme kaydedildi.",
+                customerName = accName,
+                customerPhone = accPhone,
+                newBalance = newBalance,
+                amount = amount
+            });
+        }
+        catch (Exception ex)
+        {
+            await WriteJsonAsync(res, new { success = false, message = "Tahsilat kaydetme hatası: " + ex.Message });
+        }
+    }
+
+    private static async Task HandleWhatsAppWebhookApiAsync(HttpListenerRequest req, HttpListenerResponse res)
+    {
+        try
+        {
+            string msg = req.QueryString["msg"] ?? req.QueryString["text"] ?? req.QueryString["Body"] ?? "";
+
+            if (req.HttpMethod == "POST" && req.HasEntityBody)
+            {
+                using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
+                string body = await reader.ReadToEndAsync();
+                try
+                {
+                    using var doc = JsonDocument.Parse(body);
+                    if (doc.RootElement.TryGetProperty("message", out var m)) msg = m.GetString() ?? msg;
+                    else if (doc.RootElement.TryGetProperty("text", out var t)) msg = t.GetString() ?? msg;
+                }
+                catch
+                {
+                    if (body.Contains("Body="))
+                    {
+                        var parsed = HttpUtility.ParseQueryString(body);
+                        msg = parsed["Body"] ?? msg;
+                    }
+                }
+            }
+
+            string reply = WhatsAppService.FormatWhatsAppBotResponse(msg);
+            await WriteJsonAsync(res, new { success = true, reply = reply });
+        }
+        catch (Exception ex)
+        {
+            await WriteJsonAsync(res, new { success = false, error = ex.Message });
+        }
+    }
+
     private static async Task ServeScannerAppAsync(HttpListenerResponse res)
     {
         res.ContentType = "text/html; charset=utf-8";
@@ -482,6 +787,11 @@ HAVING COALESCE(SUM(CASE WHEN sm.MovementType IN ('Gelen', 'İade Giriş') THEN 
     }
 
     private static string GetMobileScannerHtml()
+    {
+        return MobilePortalHtmlBuilder.GetHtml();
+    }
+
+    private static string _OldHtml_UNUSED()
     {
         return @"<!DOCTYPE html>
 <html lang=""tr"">

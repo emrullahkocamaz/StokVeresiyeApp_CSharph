@@ -128,9 +128,10 @@ public class BarcodeLabelDialog : Form
         content.Controls.Add(pnlRight);
         Controls.Add(content);
 
+        Controls.SetChildIndex(header, 0);
+        Controls.SetChildIndex(bottom, 1);
+        Controls.SetChildIndex(content, 2);
         content.BringToFront();
-        header.SendToBack();
-        bottom.SendToBack();
     }
 
     private Size GetLabelPixelSize()

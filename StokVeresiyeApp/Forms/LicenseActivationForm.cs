@@ -218,10 +218,10 @@ public class LicenseActivationForm : Form
 
         Controls.Add(content);
 
-        // Z-order: content arkada, header ve bottom üstte
+        Controls.SetChildIndex(header, 0);
+        Controls.SetChildIndex(bottomPanel, 1);
+        Controls.SetChildIndex(content, 2);
         content.BringToFront();
-        header.SendToBack();
-        bottomPanel.SendToBack();
     }
 
     private void ActivateClick(object? sender, EventArgs e)

@@ -85,14 +85,12 @@ public class MobileScannerDialog : Form
         _lnkUrl.LinkClicked += (s, e) => OpenInBrowser();
         pnlUrl.Controls.Add(_lnkUrl);
 
-        var flowBtns = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 80, FlowDirection = FlowDirection.LeftToRight };
+        var flowBtns = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 42, FlowDirection = FlowDirection.LeftToRight };
         var btnCopy = UITheme.CreateButton("📋 Linki Kopyala", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => CopyUrl(), 140, 32);
         var btnOpen = UITheme.CreateButton("🌐 Tarayıcıda Aç", Color.FromArgb(20, 176, 186), Color.White, (s, e) => OpenInBrowser(), 140, 32);
-        var btnSendTg = UITheme.CreateButton("📲 Telegram'dan Bana At", Color.FromArgb(34, 197, 94), Color.White, async (s, e) => await SendToTelegramAsync(), 285, 32);
 
         flowBtns.Controls.Add(btnCopy);
         flowBtns.Controls.Add(btnOpen);
-        flowBtns.Controls.Add(btnSendTg);
 
         var lblHelp = new Label
         {
@@ -140,8 +138,9 @@ public class MobileScannerDialog : Form
         Controls.Add(mainContainer);
 
         // Z-Order
+        Controls.SetChildIndex(header, 0);
+        Controls.SetChildIndex(mainContainer, 1);
         mainContainer.BringToFront();
-        header.SendToBack();
     }
 
     private void LoadNetworkInfo()
@@ -306,26 +305,4 @@ public class MobileScannerDialog : Form
         }
     }
 
-    private async Task SendToTelegramAsync()
-    {
-        if (!TelegramBotService.IsRunning || TelegramBotService.Config.AuthorizedChatId == 0)
-        {
-            MessageBox.Show(
-                "Telegram botu henüz bağlı veya aktif değil.\n\n" +
-                "Önce Telegram Ayarları ekranından botunuzu bağlayınız.",
-                "Telegram Bağlı Değil",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning
-            );
-            return;
-        }
-
-        string msg = $"📱 *Bilensis Mobil Canlı Barkod Okuyucu*\n\n" +
-                     $"Depo ve reyonda gezerken telefon kamerasıyla barkod okutup stok & fiyat görmek için linke dokunun:\n\n" +
-                     $"👉 {_lnkUrl.Text}\n\n" +
-                     $"💡 Not: Telefonunuzun bu bilgisayarla aynı Wi-Fi ağına bağlı olması gerekmektedir.";
-
-        await TelegramBotService.SendAlertToAdminAsync(msg);
-        MessageBox.Show("Mobil barkod linki Telegram botunuza gönderildi! Telefonunuzdan Telegram'a bakabilirsiniz.", "Gönderildi", MessageBoxButtons.OK, MessageBoxIcon.Information);
-    }
 }

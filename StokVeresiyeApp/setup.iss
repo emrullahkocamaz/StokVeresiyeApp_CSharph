@@ -1,6 +1,6 @@
 ; Inno Setup Script - Bilensis
 #define MyAppName "Bilensis"
-#define MyAppVersion "2.5.0"
+#define MyAppVersion "2.7.0"
 #define MyAppPublisher "Bilensis"
 #define MyAppExeName "StokVeresiyeApp.exe"
 

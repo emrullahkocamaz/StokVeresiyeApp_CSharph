@@ -79,12 +79,12 @@ public class InvoicePaymentDialog : BaseModernForm
         pnlAmountRow.Controls.Add(_txtAmount);
         pnlAmountRow.Controls.Add(btnPayAll);
 
-        AddRow("Fatura Bilgisi", pnlInfo);
-        AddRow("Ödeme Tarihi", _dtpDate);
-        AddRow("Ödeme Yöntemi", _cmbMethod);
-        AddRow("Ödenecek Tutar (₺) (*)", pnlAmountRow);
-        AddRow("İşlem Sonrası Kalan", _lblRemainingPreview);
-        AddRow("Açıklama / Dekont Notu", _txtNote);
+        AddRow("Fatura Bilgisi", pnlInfo, 120);
+        AddRow("Ödeme Tarihi", _dtpDate, 42);
+        AddRow("Ödeme Yöntemi", _cmbMethod, 42);
+        AddRow("Ödenecek Tutar (₺) (*)", pnlAmountRow, 42);
+        AddRow("İşlem Sonrası Kalan", _lblRemainingPreview, 42);
+        AddRow("Açıklama / Dekont Notu", _txtNote, 52);
 
         // Geçmiş Ödemeler Tablosu Kartı
         var pnlHistoryCard = new CardPanel
@@ -104,7 +104,7 @@ public class InvoicePaymentDialog : BaseModernForm
         UITheme.ApplyGridStyle(_gridHistory);
         pnlHistoryCard.Controls.Add(_gridHistory);
         pnlHistoryCard.Controls.Add(lblHistTitle);
-        AddRow("Ödeme Geçmişi", pnlHistoryCard);
+        AddRow("Ödeme Geçmişi", pnlHistoryCard, 180);
 
         UpdateRemainingPreview();
         LoadPaymentHistory();

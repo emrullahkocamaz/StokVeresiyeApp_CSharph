@@ -116,11 +116,11 @@ public class StockCountDialog : Form
         bottom.Controls.Add(btnClose);
         Controls.Add(bottom);
 
-        // WinForms Z-Order
-        gridContainer.BringToFront();
-        header.SendToBack();
-        toolbar.SendToBack();
-        bottom.SendToBack();
+        // WinForms Z-Order: arka plan katmanları sabit kalsın, içerik alanı üstte görünsün.
+        Controls.SetChildIndex(header, 0);
+        Controls.SetChildIndex(toolbar, 1);
+        Controls.SetChildIndex(gridContainer, 2);
+        Controls.SetChildIndex(bottom, 3);
 
         FormatGridColumns();
     }

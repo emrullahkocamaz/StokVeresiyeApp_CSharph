@@ -21,7 +21,8 @@ public class ParkedSaleModel
     public string? DueDate { get; set; }
     public long? VariantId { get; set; }
     public string? VariantName { get; set; }
+    public string? CustomTag { get; set; } // Plaka / Masa No / Müşteri Adı (Örn: "Masa 4", "34 ABC 123", "Ahmet Bey")
 
     public string DisplayText =>
-        $"[{ParkedAt:HH:mm}] {AccountName} - {ProductName} ({Quantity:N0} adet) - {TotalAmount:N2} ₺";
+        $"[{ParkedAt:HH:mm}] {(!string.IsNullOrWhiteSpace(CustomTag) ? $"🏷️ {CustomTag} | " : "")}{AccountName} - {ProductName} ({Quantity:N0} adet) - {TotalAmount:N2} ₺";
 }

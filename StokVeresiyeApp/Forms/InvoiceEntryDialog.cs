@@ -22,10 +22,16 @@ public class InvoiceEntryDialog : Form
 
     private readonly CheckBox _chkUpdateStock = new() { Text = "Ürünleri seçilen depoya otomatik stok girişi yap (Alış Hareketi)", Checked = true, AutoSize = true };
     private readonly CheckBox _chkUpdateAccount = new() { Text = "Tedarikçi cari hesabına borç/alacak kaydı düş", Checked = true, AutoSize = true };
+    private readonly DataGridView _gridReadyProducts = new();
 
     private string? _selectedFilePath;
     private ParsedInvoiceResult? _parsedResult;
     private readonly DataTable _itemsTable = new();
+    private long? _targetUpdateInvoiceId;
+    private bool _isSimpleMode = false;
+    private readonly Button _btnToggleMode = UITheme.CreateButton("✨ Kolay Mod", Color.FromArgb(245, 158, 11), Color.White, null!, 125, 36);
+    private readonly Panel _pnlReconcileWarning = new() { Dock = DockStyle.Top, Height = 36, BackColor = Color.FromArgb(254, 242, 242), Visible = false, Padding = new Padding(12, 6, 12, 6) };
+    private readonly Label _lblReconcileText = new() { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), ForeColor = Color.FromArgb(185, 28, 28) };
 
     public InvoiceEntryDialog(string? initialFilePath = null)
     {
@@ -46,6 +52,34 @@ public class InvoiceEntryDialog : Form
         }
     }
 
+    private void BindReadyProducts()
+    {
+        try
+        {
+            var dt = ProductService.GetAllProducts();
+            _gridReadyProducts.DataSource = dt;
+
+            if (_gridReadyProducts.Columns.Contains("Id")) _gridReadyProducts.Columns["Id"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Açılış")) _gridReadyProducts.Columns["Açılış"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Gelen")) _gridReadyProducts.Columns["Gelen"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Satılan")) _gridReadyProducts.Columns["Satılan"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Kritik Seviye")) _gridReadyProducts.Columns["Kritik Seviye"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Toplam Tutar")) _gridReadyProducts.Columns["Toplam Tutar"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Fatura No")) _gridReadyProducts.Columns["Fatura No"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Özellik / Tür")) _gridReadyProducts.Columns["Özellik / Tür"].Visible = false;
+
+            foreach (var columnName in new[] { "Kalan Stok", "Satış Fiyatı" })
+            {
+                if (_gridReadyProducts.Columns.Contains(columnName))
+                {
+                    _gridReadyProducts.Columns[columnName].DefaultCellStyle.Format = "N2";
+                    _gridReadyProducts.Columns[columnName].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+                }
+            }
+        }
+        catch { }
+    }
+
     private void InitializeTable()
     {
         _itemsTable.Columns.Add("ProductId", typeof(long));
@@ -57,6 +91,11 @@ public class InvoiceEntryDialog : Form
         _itemsTable.Columns.Add("Quantity", typeof(double));
         _itemsTable.Columns.Add("Unit", typeof(string));
         _itemsTable.Columns.Add("UnitPrice", typeof(double));
+        _itemsTable.Columns.Add("OldPurchasePrice", typeof(double));
+        _itemsTable.Columns.Add("PriceDiffText", typeof(string));
+        _itemsTable.Columns.Add("OldSalePrice", typeof(double));
+        _itemsTable.Columns.Add("NewSalePrice", typeof(double));
+        _itemsTable.Columns.Add("ActionDecision", typeof(string));
         _itemsTable.Columns.Add("DiscountPercent", typeof(double));
         _itemsTable.Columns.Add("DiscountAmount", typeof(double));
         _itemsTable.Columns.Add("VatPercent", typeof(double));
@@ -71,23 +110,27 @@ public class InvoiceEntryDialog : Form
     {
         // 1. Üst Başlık (Header)
         var header = new CardPanel { Dock = DockStyle.Top, Height = 70, Padding = new Padding(20, 10, 20, 10) };
-        var lblTitle = new Label { Text = "📄 E-Fatura / Alış Faturası Girişi", Font = UITheme.HeaderFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 28 };
-        var lblSub = new Label { Text = "Tedarikçinizden gelen PDF veya XML e-faturayı seçerek ürün ve fiyatları tek tıkla depoya ve cariye işleyebilirsiniz.", Font = UITheme.RegularFont, ForeColor = UITheme.TextSecondary, Dock = DockStyle.Top, Height = 20 };
+        var lblTitle = new Label { Text = "📄 E-Fatura / Alış Faturası Girişi & Akıllı Fiyat Karar Masası", Font = UITheme.HeaderFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 28 };
+        var lblSub = new Label { Text = "Faturadaki ürün fiyatları ile sistemdeki fiyatlar anlık kıyaslanır. Zam, indirim veya yeni ürünler için satır bazında veya topluca karar verebilirsiniz.", Font = UITheme.RegularFont, ForeColor = UITheme.TextSecondary, Dock = DockStyle.Top, Height = 20 };
         header.Controls.Add(lblSub);
         header.Controls.Add(lblTitle);
         Controls.Add(header);
 
         // 2. Toolbar & Dosya Seçimi
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 60, Padding = new Padding(15, 10, 15, 10) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 56, Padding = new Padding(15, 8, 15, 8) };
         var flowToolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
 
-        var btnSelectFile = UITheme.CreateButton("📂 E-Fatura Seç (.pdf / .xml)", UITheme.Primary, Color.White, (s, e) => SelectFile(), 200, 36);
-        var btnOpenPdf = UITheme.CreateButton("👁️ PDF Belgeyi Aç", UITheme.Secondary, Color.White, (s, e) => OpenOriginalPdf(), 150, 36);
-        var btnGenBarcodes = UITheme.CreateButton("⚡ Otomatik Barkod Üret", Color.FromArgb(16, 185, 129), Color.White, (s, e) => GenerateMissingBarcodes(false), 175, 36);
-        var btnAddRow = UITheme.CreateButton("➕ Manuel Kalem Ekle", Color.FromArgb(79, 70, 229), Color.White, (s, e) => AddManualRow(), 160, 36);
-        var btnDeleteRow = UITheme.CreateButton("🗑️ Seçili Satırı Sil", UITheme.Danger, Color.White, (s, e) => DeleteSelectedRow(), 150, 36);
+        var btnSelectFile = UITheme.CreateButton("📂 E-Fatura Seç (.pdf / .xml)", UITheme.Primary, Color.White, (s, e) => SelectFile(), 195, 36);
+        var btnPasteWizard = UITheme.CreateButton("📋 Metinden Kalem Çıkar (Sağlama)", Color.FromArgb(14, 165, 233), Color.White, (s, e) => OpenTextImportWizard(), 235, 36);
+        _btnToggleMode.Click += (s, e) => ToggleSimpleMode();
+        var btnOpenPdf = UITheme.CreateButton("👁️ PDF Belgeyi Aç", UITheme.Secondary, Color.White, (s, e) => OpenOriginalPdf(), 145, 36);
+        var btnGenBarcodes = UITheme.CreateButton("⚡ Otomatik Barkod Üret", Color.FromArgb(16, 185, 129), Color.White, (s, e) => GenerateMissingBarcodes(false), 170, 36);
+        var btnAddRow = UITheme.CreateButton("➕ Manuel Kalem Ekle", Color.FromArgb(79, 70, 229), Color.White, (s, e) => AddManualRow(), 155, 36);
+        var btnDeleteRow = UITheme.CreateButton("🗑️ Satırı Sil", UITheme.Danger, Color.White, (s, e) => DeleteSelectedRow(), 115, 36);
 
         flowToolbar.Controls.Add(btnSelectFile);
+        flowToolbar.Controls.Add(btnPasteWizard);
+        flowToolbar.Controls.Add(_btnToggleMode);
         flowToolbar.Controls.Add(btnOpenPdf);
         flowToolbar.Controls.Add(btnGenBarcodes);
         flowToolbar.Controls.Add(btnAddRow);
@@ -95,9 +138,42 @@ public class InvoiceEntryDialog : Form
         toolbar.Controls.Add(flowToolbar);
         Controls.Add(toolbar);
 
+        // 2.B. Uyuşmazlık & Fiyat Karar Sihirbazı Çubuğu (Decision Toolbar)
+        var pnlDecisionBar = new CardPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(15, 6, 15, 6), BackColor = Color.FromArgb(248, 250, 252) };
+        var flowDecision = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
+
+        var lblDecTitle = new Label { Text = "⚡ Toplu Karar:", Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), ForeColor = UITheme.TextPrimary, AutoSize = true, Margin = new Padding(0, 8, 10, 0) };
+        var btnApplyAllBuy = UITheme.CreateButton("📈 Tüm Zamları Alışa Yansıt", Color.FromArgb(217, 119, 6), Color.White, (s, e) => BatchSetDecision("Alış Fiyatını Güncelle"), 190, 32);
+        var btnApplyAllSale = UITheme.CreateButton("🚀 Kâr Marjını Koru (Satışları da Artır)", Color.FromArgb(16, 185, 129), Color.White, (s, e) => BatchSetDecision("Satış Fiyatına Zam Yap"), 240, 32);
+        var btnKeepAllAsIs = UITheme.CreateButton("🛡️ Fiyatlara Dokunma (Sadece Stok Gir)", Color.FromArgb(100, 116, 139), Color.White, (s, e) => BatchSetDecision("Olduğu Gibi Al"), 235, 32);
+        var btnExcludeSelected = UITheme.CreateButton("❌ Faturadan Çıkar (Hariç Tut)", Color.FromArgb(239, 68, 68), Color.White, (s, e) => SetSelectedDecision("Faturadan Sil"), 190, 32);
+
+        flowDecision.Controls.Add(lblDecTitle);
+        flowDecision.Controls.Add(btnApplyAllBuy);
+        flowDecision.Controls.Add(btnApplyAllSale);
+        flowDecision.Controls.Add(btnKeepAllAsIs);
+        flowDecision.Controls.Add(btnExcludeSelected);
+        pnlDecisionBar.Controls.Add(flowDecision);
+        Controls.Add(pnlDecisionBar);
+
         // 3. Fatura Başlık Bilgileri
         var formPanel = new CardPanel { Dock = DockStyle.Top, Height = 115, Padding = new Padding(15, 10, 15, 10) };
         var flowFields = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, AutoScroll = true };
+
+        var readyPanel = new CardPanel { Dock = DockStyle.Top, Height = 190, Padding = new Padding(15, 10, 15, 10), Margin = new Padding(0, 0, 0, 10) };
+        var readyTitle = new Label { Text = "📦 Satışa Hazır Ürünler (Depoda Mevcut / Fiyat Görünümü)", Font = UITheme.TitleFont, ForeColor = UITheme.Primary, Dock = DockStyle.Top, Height = 26 };
+        _gridReadyProducts.ReadOnly = true;
+        _gridReadyProducts.AllowUserToAddRows = false;
+        _gridReadyProducts.RowHeadersVisible = false;
+        _gridReadyProducts.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _gridReadyProducts.Font = UITheme.SmallFont;
+        _gridReadyProducts.Dock = DockStyle.Fill;
+        BindReadyProducts();
+        readyPanel.Controls.Add(_gridReadyProducts);
+        readyPanel.Controls.Add(readyTitle);
+        readyTitle.SendToBack();
+        _gridReadyProducts.BringToFront();
+        Controls.Add(readyPanel);
 
         // Fatura No
         var pnlNo = CreateFieldPanel("Fatura No:", _txtInvoiceNo, 160);
@@ -173,15 +249,22 @@ public class InvoiceEntryDialog : Form
         _gridItems.RowHeadersVisible = false;
         _gridItems.CellValueChanged += (s, e) => RecalculateTotals();
 
+        _pnlReconcileWarning.Controls.Add(_lblReconcileText);
         gridPanel.Controls.Add(_gridItems);
+        gridPanel.Controls.Add(_pnlReconcileWarning);
         Controls.Add(gridPanel);
 
-        // Z-Index düzeni
+        // Grid Olayları (Renklendirme ve Karar Menüsü)
+        _gridItems.CellFormatting += GridItems_CellFormatting;
+        _gridItems.CellClick += GridItems_CellClick;
+
+        // Z-Index düzeni: arka plan başlık ve toolbar, orta form ve grid önde kalır.
+        Controls.SetChildIndex(header, 0);
+        Controls.SetChildIndex(toolbar, 1);
+        Controls.SetChildIndex(formPanel, 2);
+        Controls.SetChildIndex(bottomPanel, 3);
+        Controls.SetChildIndex(gridPanel, 4);
         gridPanel.BringToFront();
-        bottomPanel.SendToBack();
-        formPanel.SendToBack();
-        toolbar.SendToBack();
-        header.SendToBack();
 
         FormatGridColumns();
     }
@@ -198,25 +281,28 @@ public class InvoiceEntryDialog : Form
             colLineNo.HeaderText = "Sıra";
             colLineNo.Width = 45;
             colLineNo.ReadOnly = true;
+            colLineNo.Visible = !_isSimpleMode;
         }
 
         if (_gridItems.Columns["Status"] is { } colStatus)
         {
             colStatus.HeaderText = "Durum";
-            colStatus.Width = 110;
+            colStatus.Width = 100;
             colStatus.ReadOnly = true;
+            colStatus.Visible = !_isSimpleMode;
         }
 
         if (_gridItems.Columns["Barcode"] is { } colBarcode)
         {
             colBarcode.HeaderText = "Barkod No";
-            colBarcode.Width = 120;
+            colBarcode.Width = 125;
         }
 
         if (_gridItems.Columns["ItemCode"] is { } colItemCode)
         {
             colItemCode.HeaderText = "Ürün Kodu";
-            colItemCode.Width = 100;
+            colItemCode.Width = 95;
+            colItemCode.Visible = !_isSimpleMode;
         }
 
         if (_gridItems.Columns["ItemName"] is { } colItemName)
@@ -228,57 +314,101 @@ public class InvoiceEntryDialog : Form
         if (_gridItems.Columns["Quantity"] is { } colQuantity)
         {
             colQuantity.HeaderText = "Miktar";
-            colQuantity.Width = 70;
+            colQuantity.Width = 65;
             colQuantity.DefaultCellStyle.Format = "N2";
         }
 
         if (_gridItems.Columns["Unit"] is { } colUnit)
         {
             colUnit.HeaderText = "Birim";
-            colUnit.Width = 60;
+            colUnit.Width = 55;
         }
 
         if (_gridItems.Columns["UnitPrice"] is { } colUnitPrice)
         {
-            colUnitPrice.HeaderText = "Birim Fiyat";
-            colUnitPrice.Width = 95;
+            colUnitPrice.HeaderText = "Faturadaki Alış (₺)";
+            colUnitPrice.Width = 110;
             colUnitPrice.DefaultCellStyle.Format = "N2";
+        }
+
+        if (_gridItems.Columns["OldPurchasePrice"] is { } colOldBuy)
+        {
+            colOldBuy.HeaderText = "Eski Alış (₺)";
+            colOldBuy.Width = 90;
+            colOldBuy.DefaultCellStyle.Format = "N2";
+            colOldBuy.ReadOnly = true;
+            colOldBuy.Visible = !_isSimpleMode;
+        }
+
+        if (_gridItems.Columns["PriceDiffText"] is { } colDiff)
+        {
+            colDiff.HeaderText = "Fiyat Değişimi";
+            colDiff.Width = 125;
+            colDiff.ReadOnly = true;
+        }
+
+        if (_gridItems.Columns["OldSalePrice"] is { } colOldSale)
+        {
+            colOldSale.HeaderText = "Eski Satış (₺)";
+            colOldSale.Width = 90;
+            colOldSale.DefaultCellStyle.Format = "N2";
+            colOldSale.ReadOnly = true;
+            colOldSale.Visible = !_isSimpleMode;
+        }
+
+        if (_gridItems.Columns["NewSalePrice"] is { } colNewSale)
+        {
+            colNewSale.HeaderText = "Yeni Satış (₺)";
+            colNewSale.Width = 100;
+            colNewSale.DefaultCellStyle.Format = "N2";
+        }
+
+        if (_gridItems.Columns["ActionDecision"] is { } colAction)
+        {
+            colAction.HeaderText = "⚡ Karar (Tıkla)";
+            colAction.Width = 145;
+            colAction.ReadOnly = true;
         }
 
         if (_gridItems.Columns["DiscountPercent"] is { } colDiscPct)
         {
             colDiscPct.HeaderText = "İsk %";
-            colDiscPct.Width = 55;
+            colDiscPct.Width = 50;
             colDiscPct.DefaultCellStyle.Format = "N0";
+            colDiscPct.Visible = !_isSimpleMode;
         }
 
         if (_gridItems.Columns["DiscountAmount"] is { } colDiscAmount)
         {
             colDiscAmount.HeaderText = "İskonto";
-            colDiscAmount.Width = 75;
+            colDiscAmount.Width = 70;
             colDiscAmount.DefaultCellStyle.Format = "N2";
+            colDiscAmount.Visible = !_isSimpleMode;
         }
 
         if (_gridItems.Columns["VatPercent"] is { } colVatPct)
         {
             colVatPct.HeaderText = "KDV %";
-            colVatPct.Width = 60;
+            colVatPct.Width = 55;
             colVatPct.DefaultCellStyle.Format = "N0";
+            colVatPct.Visible = !_isSimpleMode;
         }
 
         if (_gridItems.Columns["VatAmount"] is { } colVatAmount)
         {
             colVatAmount.HeaderText = "KDV Tutarı";
-            colVatAmount.Width = 85;
+            colVatAmount.Width = 80;
             colVatAmount.DefaultCellStyle.Format = "N2";
             colVatAmount.ReadOnly = true;
+            colVatAmount.Visible = !_isSimpleMode;
         }
 
         if (_gridItems.Columns["OtherTaxes"] is { } colOtherTaxes)
         {
             colOtherTaxes.HeaderText = "Diğer Verg.";
-            colOtherTaxes.Width = 75;
+            colOtherTaxes.Width = 70;
             colOtherTaxes.DefaultCellStyle.Format = "N2";
+            colOtherTaxes.Visible = !_isSimpleMode;
         }
 
         if (_gridItems.Columns["LineTotal"] is { } colLineTotal)
@@ -288,6 +418,284 @@ public class InvoiceEntryDialog : Form
             colLineTotal.DefaultCellStyle.Format = "N2";
             colLineTotal.ReadOnly = true;
         }
+    }
+
+    private void GridItems_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.RowIndex >= _gridItems.Rows.Count) return;
+        var row = _gridItems.Rows[e.RowIndex];
+        if (row.DataBoundItem is not DataRowView drv) return;
+
+        string decision = drv["ActionDecision"]?.ToString() ?? "";
+        string diffText = drv["PriceDiffText"]?.ToString() ?? "";
+        string status = drv["Status"]?.ToString() ?? "";
+
+        // Faturadan çıkarılmış / silinmiş kalemler: soluk gri
+        if (decision.Contains("Sil") || decision.Contains("Hariç"))
+        {
+            row.DefaultCellStyle.BackColor = Color.FromArgb(241, 245, 249);
+            row.DefaultCellStyle.ForeColor = Color.FromArgb(148, 163, 184);
+            return;
+        }
+
+        // Fiyat artışı / Zam: hafif sarı/turuncu
+        if (diffText.Contains("🔺") || diffText.Contains("ZAM"))
+        {
+            row.DefaultCellStyle.BackColor = Color.FromArgb(254, 243, 199);
+            row.DefaultCellStyle.ForeColor = Color.FromArgb(146, 64, 14);
+        }
+        // İndirim: hafif yeşil
+        else if (diffText.Contains("🔻"))
+        {
+            row.DefaultCellStyle.BackColor = Color.FromArgb(220, 252, 231);
+            row.DefaultCellStyle.ForeColor = Color.FromArgb(22, 101, 52);
+        }
+        // Yeni ürün: hafif mor
+        else if (status.Contains("Yeni"))
+        {
+            row.DefaultCellStyle.BackColor = Color.FromArgb(243, 232, 255);
+            row.DefaultCellStyle.ForeColor = Color.FromArgb(88, 28, 135);
+        }
+        else
+        {
+            row.DefaultCellStyle.BackColor = Color.White;
+            row.DefaultCellStyle.ForeColor = UITheme.TextPrimary;
+        }
+
+        // Karar hücresini belirginleştir
+        if (_gridItems.Columns[e.ColumnIndex].Name == "ActionDecision")
+        {
+            e.CellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            if (decision == "Satış Fiyatına Zam Yap")
+                e.CellStyle.ForeColor = Color.FromArgb(16, 185, 129);
+            else if (decision == "Alış Fiyatını Güncelle")
+                e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
+            else if (decision == "Olduğu Gibi Al")
+                e.CellStyle.ForeColor = Color.FromArgb(71, 85, 105);
+            else if (decision == "Faturadan Sil")
+                e.CellStyle.ForeColor = Color.FromArgb(239, 68, 68);
+        }
+    }
+
+    private void GridItems_CellClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        string colName = _gridItems.Columns[e.ColumnIndex].Name;
+
+        if (colName == "ActionDecision")
+        {
+            if (_gridItems.Rows[e.RowIndex].DataBoundItem is not DataRowView drv) return;
+
+            var menu = new ContextMenuStrip();
+            menu.Items.Add("📈 Alış Fiyatını Güncelle (Sadece maliyet)", null, (s, ev) =>
+            {
+                drv["ActionDecision"] = "Alış Fiyatını Güncelle";
+                _gridItems.InvalidateRow(e.RowIndex);
+            });
+            menu.Items.Add("🚀 Satış Fiyatına Zam Yap (Kâr marjını koru)", null, (s, ev) =>
+            {
+                drv["ActionDecision"] = "Satış Fiyatına Zam Yap";
+                _gridItems.InvalidateRow(e.RowIndex);
+            });
+            menu.Items.Add("🛡️ Olduğu Gibi Al (Fiyatlara dokunma, sadece stok gir)", null, (s, ev) =>
+            {
+                drv["ActionDecision"] = "Olduğu Gibi Al";
+                _gridItems.InvalidateRow(e.RowIndex);
+            });
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("❌ Faturadan Sil / Hariç Tut (Bu kalemi alma)", null, (s, ev) =>
+            {
+                drv["ActionDecision"] = "Faturadan Sil";
+                _gridItems.InvalidateRow(e.RowIndex);
+                RecalculateTotals();
+            });
+
+            var cellRect = _gridItems.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, true);
+            menu.Show(_gridItems, cellRect.Left, cellRect.Bottom);
+        }
+    }
+
+    private void BatchSetDecision(string decision)
+    {
+        int count = 0;
+        foreach (DataRow row in _itemsTable.Rows)
+        {
+            if (row.RowState == DataRowState.Deleted) continue;
+            string curDecision = row["ActionDecision"]?.ToString() ?? "";
+            if (curDecision == "Faturadan Sil") continue; // Önceden silinenleri elle değiştirmediyse dokunma
+
+            row["ActionDecision"] = decision;
+            count++;
+        }
+        _gridItems.Invalidate();
+        MessageBox.Show($"Tablodaki {count} kalemin işlemi '{decision}' olarak ayarlandı.", "Toplu Karar Verildi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void SetSelectedDecision(string decision)
+    {
+        if (_gridItems.CurrentRow?.DataBoundItem is DataRowView drv)
+        {
+            drv["ActionDecision"] = decision;
+            _gridItems.InvalidateRow(_gridItems.CurrentRow.Index);
+            RecalculateTotals();
+        }
+    }
+
+    private void ToggleSimpleMode()
+    {
+        _isSimpleMode = !_isSimpleMode;
+        _btnToggleMode.Text = _isSimpleMode ? "⚙️ Detaylı Mod" : "✨ Kolay Mod";
+        _btnToggleMode.BackColor = _isSimpleMode ? Color.FromArgb(71, 85, 105) : Color.FromArgb(245, 158, 11);
+        FormatGridColumns();
+    }
+
+    private void OpenTextImportWizard()
+    {
+        string? textToPass = _parsedResult?.RawText;
+        if (string.IsNullOrWhiteSpace(textToPass) && !string.IsNullOrWhiteSpace(_selectedFilePath) && File.Exists(_selectedFilePath))
+        {
+            try
+            {
+                if (Path.GetExtension(_selectedFilePath).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    using var doc = UglyToad.PdfPig.PdfDocument.Open(_selectedFilePath);
+                    var sb = new System.Text.StringBuilder();
+                    foreach (var p in doc.GetPages())
+                    {
+                        sb.AppendLine(p.Text);
+                    }
+                    textToPass = sb.ToString();
+                }
+            }
+            catch { }
+        }
+
+        using var dlg = new InvoiceTextImportDialog(textToPass);
+        if (dlg.ShowDialog(this) == DialogResult.OK && dlg.ExtractedItems.Count > 0)
+        {
+            _itemsTable.Rows.Clear();
+            int counter = 1;
+            foreach (var item in dlg.ExtractedItems)
+            {
+                AddInvoiceRow(item, counter++);
+            }
+
+            RecalculateTotals();
+            FormatGridColumns();
+
+            MessageBox.Show(
+                $"{dlg.ExtractedItems.Count} adet ürün kalem metninden başarıyla ayrıştırıldı ve fatura tablosuna aktarıldı!\n\n" +
+                "Ürünlerin fiyat değişimlerini ve kararlarını tablodan inceleyebilirsiniz.",
+                "Kalemler Aktarıldı",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            );
+        }
+    }
+
+    /// <summary>
+    /// Fatura kalemini sistemdeki ürün fiyatlarıyla kıyaslayarak analitik satır olarak ekler.
+    /// </summary>
+    private void AddInvoiceRow(ParsedInvoiceItem item, int lineNo)
+    {
+        var matchedProduct = InvoiceService.FindProductByNameOrCode(item.ItemName, item.Barcode ?? item.ItemCode);
+        var row = _itemsTable.NewRow();
+
+        double oldBuy = matchedProduct?.PurchasePrice ?? 0;
+        double oldSale = matchedProduct?.SalePrice ?? 0;
+        double newBuy = item.UnitPrice;
+
+        string diffText = "➖ Aynı Fiyat";
+        string defaultDecision = "Alış Fiyatını Güncelle";
+        double newSale = oldSale;
+
+        if (matchedProduct == null)
+        {
+            diffText = "✨ Yeni Ürün";
+            defaultDecision = "Yeni Ürün Kartı Aç";
+            newSale = Math.Round(newBuy * 1.30, 2); // Varsayılan %30 kâr
+        }
+        else if (oldBuy > 0)
+        {
+            double diff = newBuy - oldBuy;
+            double pct = Math.Round((diff / oldBuy) * 100.0, 1);
+            if (diff > 0.01)
+            {
+                diffText = $"🔺 +{diff:N2} ₺ (%{pct}) ZAM";
+                defaultDecision = "Alış Fiyatını Güncelle";
+                // Eski kâr marjını koruyarak yeni satış fiyatı hesapla
+                if (oldSale > oldBuy)
+                {
+                    double marginRatio = oldSale / oldBuy;
+                    newSale = Math.Round(newBuy * marginRatio, 2);
+                }
+                else
+                {
+                    newSale = Math.Round(newBuy * 1.30, 2);
+                }
+            }
+            else if (diff < -0.01)
+            {
+                diffText = $"🔻 {diff:N2} ₺ (%{Math.Abs(pct)})";
+                defaultDecision = "Alış Fiyatını Güncelle";
+                newSale = oldSale;
+            }
+            else
+            {
+                diffText = "➖ Aynı Fiyat";
+                defaultDecision = "Olduğu Gibi Al";
+                newSale = oldSale;
+            }
+        }
+        else
+        {
+            diffText = "➖ Eski Fiyat: 0";
+            defaultDecision = "Alış Fiyatını Güncelle";
+            newSale = oldSale > 0 ? oldSale : Math.Round(newBuy * 1.30, 2);
+        }
+
+        double finalQty = item.Quantity > 0 ? item.Quantity : 1;
+        double finalUnitPrice = item.UnitPrice;
+        double finalDiscPercent = item.DiscountPercent;
+        double finalLineTotal = item.LineTotal > 0 ? item.LineTotal : Math.Round(finalQty * finalUnitPrice, 2);
+        double finalDiscAmount = item.DiscountAmount;
+
+        // Çifte İskonto Koruması:
+        // Eğer faturadaki alış birim fiyatı ile miktar çarpımı zaten net satır toplamına eşitse,
+        // faturadaki fiyat zaten iskontolu fiyattır. Bir daha iskonto düşülmemelidir!
+        if (Math.Abs((finalQty * finalUnitPrice) - finalLineTotal) < 1.0 && finalDiscPercent > 0)
+        {
+            finalDiscPercent = 0;
+            finalDiscAmount = 0;
+        }
+        else if (finalUnitPrice > 0 && finalDiscPercent > 0 && finalDiscAmount == 0)
+        {
+            finalDiscAmount = Math.Round((finalQty * finalUnitPrice) * (finalDiscPercent / 100.0), 2);
+            finalLineTotal = Math.Round((finalQty * finalUnitPrice) - finalDiscAmount, 2);
+        }
+
+        row["ProductId"] = matchedProduct?.Id ?? (object)DBNull.Value;
+        row["LineNo"] = lineNo;
+        row["Status"] = matchedProduct != null ? "✅ Kayıtlı" : "⚠️ Yeni Ürün";
+        row["Barcode"] = matchedProduct?.Barcode ?? item.Barcode ?? "";
+        row["ItemCode"] = matchedProduct?.Code ?? item.ItemCode ?? "";
+        row["ItemName"] = matchedProduct?.Name ?? item.ItemName;
+        row["Quantity"] = finalQty;
+        row["Unit"] = !string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "Adet";
+        row["UnitPrice"] = finalUnitPrice;
+        row["OldPurchasePrice"] = oldBuy;
+        row["PriceDiffText"] = diffText;
+        row["OldSalePrice"] = oldSale;
+        row["NewSalePrice"] = newSale;
+        row["ActionDecision"] = defaultDecision;
+        row["DiscountPercent"] = finalDiscPercent;
+        row["DiscountAmount"] = finalDiscAmount;
+        row["VatPercent"] = item.VatPercent;
+        row["VatAmount"] = item.VatAmount > 0 ? item.VatAmount : Math.Round(finalLineTotal * (item.VatPercent / 100.0), 2);
+        row["OtherTaxes"] = item.OtherTaxes;
+        row["LineTotal"] = finalLineTotal;
+
+        _itemsTable.Rows.Add(row);
     }
 
     private Panel CreateFieldPanel(string labelText, Control control, int width)
@@ -398,7 +806,48 @@ public class InvoiceEntryDialog : Form
 
             // Alanları doldur
             if (!string.IsNullOrWhiteSpace(_parsedResult.InvoiceNumber))
+            {
                 _txtInvoiceNo.Text = _parsedResult.InvoiceNumber;
+
+                // Mükerrer Fatura Kontrolü
+                var existingInv = InvoiceService.GetInvoiceByNumber(_parsedResult.InvoiceNumber);
+                if (existingInv != null)
+                {
+                    long existId = Convert.ToInt64(existingInv["Id"]);
+                    string existDate = existingInv["InvoiceDate"]?.ToString() ?? "";
+                    string existAcc = existingInv["AccountName"]?.ToString() ?? "";
+                    double existTotal = Convert.ToDouble(existingInv["GrandTotal"]);
+
+                    var res = MessageBox.Show(
+                        $"⚠️ DİKKAT: MÜKERRER FATURA TESPİT EDİLDİ!\n\n" +
+                        $"'{_parsedResult.InvoiceNumber}' numaralı fatura daha önce sisteme kaydedilmiştir:\n" +
+                        $"• Kayıtlı Tarih: {existDate}\n" +
+                        $"• Tedarikçi Cari: {existAcc}\n" +
+                        $"• Kayıtlı Tutar: {existTotal:N2} ₺\n\n" +
+                        $"Ne yapmak istersiniz?\n\n" +
+                        $"• [EVET] : MEVCUT FATURAYI GÜNCELLE / DEĞİŞTİR (Eski kaydın üzerine yeni kalemleri yazar, mükerrerliği önler).\n" +
+                        $"• [HAYIR] : ATLA / İPTAL ET (Bu faturayı yüklemekten vazgeç).\n" +
+                        $"• [İPTAL] : YİNE DE YENİ BİR FATURA OLARAK KAYDET.",
+                        "Mükerrer Fatura Uyarısı (Atla / Değiştir)",
+                        MessageBoxButtons.YesNoCancel,
+                        MessageBoxIcon.Warning
+                    );
+
+                    if (res == DialogResult.No)
+                    {
+                        Close();
+                        return;
+                    }
+                    else if (res == DialogResult.Yes)
+                    {
+                        _targetUpdateInvoiceId = existId;
+                    }
+                    else
+                    {
+                        _targetUpdateInvoiceId = null;
+                    }
+                }
+            }
 
             _dtpDate.Value = _parsedResult.InvoiceDate;
 
@@ -414,24 +863,7 @@ public class InvoiceEntryDialog : Form
             int counter = 1;
             foreach (var item in _parsedResult.Items)
             {
-                var matchedProduct = InvoiceService.FindProductByNameOrCode(item.ItemName, item.Barcode ?? item.ItemCode);
-                var row = _itemsTable.NewRow();
-                row["ProductId"] = matchedProduct?.Id ?? (object)DBNull.Value;
-                row["LineNo"] = item.LineNo > 0 ? item.LineNo : counter++;
-                row["Status"] = matchedProduct != null ? "✅ Kayıtlı" : "⚠️ Yeni Ürün";
-                row["Barcode"] = matchedProduct?.Barcode ?? item.Barcode ?? "";
-                row["ItemCode"] = matchedProduct?.Code ?? item.ItemCode ?? "";
-                row["ItemName"] = matchedProduct?.Name ?? item.ItemName;
-                row["Quantity"] = item.Quantity > 0 ? item.Quantity : 1;
-                row["Unit"] = !string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "Adet";
-                row["UnitPrice"] = item.UnitPrice;
-                row["DiscountPercent"] = item.DiscountPercent;
-                row["DiscountAmount"] = item.DiscountAmount;
-                row["VatPercent"] = item.VatPercent;
-                row["VatAmount"] = item.VatAmount > 0 ? item.VatAmount : Math.Round(item.Quantity * item.UnitPrice * (item.VatPercent / 100.0), 2);
-                row["OtherTaxes"] = item.OtherTaxes;
-                row["LineTotal"] = item.LineTotal > 0 ? item.LineTotal : Math.Round((item.Quantity * item.UnitPrice) - item.DiscountAmount, 2);
-                _itemsTable.Rows.Add(row);
+                AddInvoiceRow(item, item.LineNo > 0 ? item.LineNo : counter++);
             }
 
             RecalculateTotals();
@@ -630,6 +1062,11 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
         row["Quantity"] = 1.0;
         row["Unit"] = "Adet";
         row["UnitPrice"] = 0.0;
+        row["OldPurchasePrice"] = 0.0;
+        row["PriceDiffText"] = "✨ Yeni Ürün";
+        row["OldSalePrice"] = 0.0;
+        row["NewSalePrice"] = 0.0;
+        row["ActionDecision"] = "Yeni Ürün Kartı Aç";
         row["DiscountPercent"] = 0.0;
         row["DiscountAmount"] = 0.0;
         row["VatPercent"] = 20.0;
@@ -658,6 +1095,13 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
         foreach (DataRow row in _itemsTable.Rows)
         {
             if (row.RowState == DataRowState.Deleted) continue;
+
+            string decision = row["ActionDecision"]?.ToString() ?? "";
+            // Faturadan çıkarılmış / silinmiş kalemler toplama katılmaz!
+            if (decision == "Faturadan Sil" || decision.Contains("Hariç"))
+            {
+                continue;
+            }
 
             double qty = Convert.ToDouble(row["Quantity"] == DBNull.Value ? 0 : row["Quantity"]);
             double price = Convert.ToDouble(row["UnitPrice"] == DBNull.Value ? 0 : row["UnitPrice"]);
@@ -692,24 +1136,24 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
         _lblSubTotal.Text = subTotal.ToString("N2") + " ₺";
         _lblVatTotal.Text = vatTotal.ToString("N2") + " ₺";
         _lblGrandTotal.Text = grandTotal.ToString("N2") + " ₺";
+
+        // Tutar Sağlama Uyarısı (Fatura genel toplamı ile kalemlerin toplamı uyuşmazsa)
+        if (_parsedResult != null && _parsedResult.GrandTotal > 0 && Math.Abs(_parsedResult.GrandTotal - grandTotal) > 1.0 && _itemsTable.Rows.Count > 0)
+        {
+            _pnlReconcileWarning.Visible = true;
+            _lblReconcileText.Text = $"⚠️ SAĞLAMA UYARISI: Fatura Belge Tutarı ({_parsedResult.GrandTotal:N2} ₺) ile tablodaki kalemler toplamı ({grandTotal:N2} ₺) uyuşmuyor! Kalemleri veya 'Metinden Kalem Çıkar' sihirbazını kontrol ediniz.";
+        }
+        else
+        {
+            _pnlReconcileWarning.Visible = false;
+        }
     }
 
     private void OpenOriginalPdf()
     {
-        if (!string.IsNullOrWhiteSpace(_selectedFilePath) && File.Exists(_selectedFilePath))
+        if (!string.IsNullOrWhiteSpace(_selectedFilePath))
         {
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = _selectedFilePath,
-                    UseShellExecute = true
-                });
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("PDF dosyası açılamadı: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            FileLauncherHelper.OpenDocument(_selectedFilePath, "E-Fatura PDF Belgesi");
         }
         else
         {
@@ -810,14 +1254,24 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
 
         foreach (DataRow row in _itemsTable.Rows)
         {
-            double qty = Convert.ToDouble(row["Quantity"]);
-            double price = Convert.ToDouble(row["UnitPrice"]);
-            double discPercent = Convert.ToDouble(row["DiscountPercent"]);
-            double discAmount = Convert.ToDouble(row["DiscountAmount"]);
-            double vatPercent = Convert.ToDouble(row["VatPercent"]);
-            double vatAmount = Convert.ToDouble(row["VatAmount"]);
-            double otherTaxes = Convert.ToDouble(row["OtherTaxes"]);
-            double lineTotal = Convert.ToDouble(row["LineTotal"]);
+            if (row.RowState == DataRowState.Deleted) continue;
+
+            string decision = row["ActionDecision"]?.ToString() ?? "Alış Fiyatını Güncelle";
+            // Eğer kullanıcı bu kalemi faturadan hariç tuttuysa faturaya ve stoğa sokma
+            if (decision == "Faturadan Sil" || decision.Contains("Hariç"))
+            {
+                continue;
+            }
+
+            double qty = Convert.ToDouble(row["Quantity"] == DBNull.Value ? 0 : row["Quantity"]);
+            double price = Convert.ToDouble(row["UnitPrice"] == DBNull.Value ? 0 : row["UnitPrice"]);
+            double discPercent = Convert.ToDouble(row["DiscountPercent"] == DBNull.Value ? 0 : row["DiscountPercent"]);
+            double discAmount = Convert.ToDouble(row["DiscountAmount"] == DBNull.Value ? 0 : row["DiscountAmount"]);
+            double vatPercent = Convert.ToDouble(row["VatPercent"] == DBNull.Value ? 0 : row["VatPercent"]);
+            double vatAmount = Convert.ToDouble(row["VatAmount"] == DBNull.Value ? 0 : row["VatAmount"]);
+            double otherTaxes = Convert.ToDouble(row["OtherTaxes"] == DBNull.Value ? 0 : row["OtherTaxes"]);
+            double lineTotal = Convert.ToDouble(row["LineTotal"] == DBNull.Value ? 0 : row["LineTotal"]);
+            double newSale = Convert.ToDouble(row["NewSalePrice"] == DBNull.Value ? 0 : row["NewSalePrice"]);
 
             subTotal += (qty * price) - discAmount;
             vatTotal += vatAmount;
@@ -837,13 +1291,44 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
                 VatPercent = vatPercent,
                 VatAmount = vatAmount,
                 OtherTaxes = otherTaxes,
-                LineTotal = lineTotal
+                LineTotal = lineTotal,
+                ActionDecision = decision,
+                NewSalePrice = newSale
             });
         }
 
         invoice.SubTotal = subTotal;
         invoice.VatTotal = vatTotal;
         invoice.GrandTotal = subTotal + vatTotal;
+
+        // Mükerrer Fatura Kontrolü ve Güncelleme İşlemi
+        if (_targetUpdateInvoiceId.HasValue && _targetUpdateInvoiceId.Value > 0)
+        {
+            InvoiceService.DeleteInvoice(_targetUpdateInvoiceId.Value);
+        }
+        else
+        {
+            var existingBeforeSave = InvoiceService.GetInvoiceByNumber(invoice.InvoiceNumber);
+            if (existingBeforeSave != null)
+            {
+                long existId = Convert.ToInt64(existingBeforeSave["Id"]);
+                var askSave = MessageBox.Show(
+                    $"'{invoice.InvoiceNumber}' numaralı fatura zaten sistemde kayıtlı!\n\n" +
+                    "Mevcut faturanın üzerine yazarak güncellemek istiyor musunuz?",
+                    "Mükerrer Fatura",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question
+                );
+                if (askSave == DialogResult.Yes)
+                {
+                    InvoiceService.DeleteInvoice(existId);
+                }
+                else
+                {
+                    return; // İptal
+                }
+            }
+        }
 
         try
         {

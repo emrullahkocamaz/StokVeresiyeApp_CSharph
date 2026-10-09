@@ -93,6 +93,7 @@ public class ProductHistoryDialog : Form
         Controls.Add(gridPanel);
         Controls.Add(bottomPanel);
         Controls.Add(topPanel);
+        gridPanel.BringToFront();
         topPanel.SendToBack();
         bottomPanel.SendToBack();
     }

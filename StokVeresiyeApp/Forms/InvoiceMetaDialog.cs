@@ -8,9 +8,27 @@ namespace StokVeresiyeApp.Forms;
 public class InvoiceMetaDialog : Form
 {
     private readonly long _productId;
-    private readonly string _productName;
+    private readonly string _productName = string.Empty;
+    private readonly long _invoiceId;
+    private readonly string _invoiceNumber = string.Empty;
     private DataRow? _invRow;
     private DataTable _itemsTable = new();
+
+    public InvoiceMetaDialog(long invoiceId)
+    {
+        _invoiceId = invoiceId;
+        InitializeComponent();
+        Text = "📄 Fatura Detayı ve Ürün Kalemleri";
+        LoadInvoiceData();
+    }
+
+    public InvoiceMetaDialog(string invoiceNumber)
+    {
+        _invoiceNumber = invoiceNumber;
+        InitializeComponent();
+        Text = $"📄 Fatura Detayı - {invoiceNumber}";
+        LoadInvoiceData();
+    }
 
     public InvoiceMetaDialog(long productId, string productName)
     {
@@ -18,13 +36,14 @@ public class InvoiceMetaDialog : Form
         _productName = productName;
 
         InitializeComponent();
+        Text = $"📄 Fatura Meta Bilgileri ve Ürün Kalemleri - {_productName}";
         LoadInvoiceData();
     }
 
     private void InitializeComponent()
     {
-        Text = $"Fatura Meta Bilgileri ve Ürün Kalemleri - {_productName}";
-        Size = new Size(960, 680);
+        Text = "📄 Fatura Meta Bilgileri ve Ürün Kalemleri";
+        Size = new Size(1100, 720);
         StartPosition = FormStartPosition.CenterParent;
         BackColor = Color.FromArgb(248, 250, 252);
         Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
@@ -36,9 +55,24 @@ public class InvoiceMetaDialog : Form
 
     private void LoadInvoiceData()
     {
-        var (invRow, itemsDt) = InvoiceService.GetProductInvoiceMetaAndAllItems(_productId);
-        _invRow = invRow;
-        _itemsTable = itemsDt;
+        if (_invoiceId > 0)
+        {
+            var (invRow, itemsDt) = InvoiceService.GetInvoiceMetaById(_invoiceId);
+            _invRow = invRow;
+            _itemsTable = itemsDt;
+        }
+        else if (!string.IsNullOrWhiteSpace(_invoiceNumber))
+        {
+            var (invRow, itemsDt) = InvoiceService.GetInvoiceMetaByNumber(_invoiceNumber);
+            _invRow = invRow;
+            _itemsTable = itemsDt;
+        }
+        else if (_productId > 0)
+        {
+            var (invRow, itemsDt) = InvoiceService.GetProductInvoiceMetaAndAllItems(_productId);
+            _invRow = invRow;
+            _itemsTable = itemsDt;
+        }
 
         Controls.Clear();
 
@@ -95,7 +129,9 @@ public class InvoiceMetaDialog : Form
 
         var lblSub = new Label
         {
-            Text = $"Tedarikçi: {_invRow["AccountName"]} | Ürün: {_productName}",
+            Text = !string.IsNullOrWhiteSpace(_productName) 
+                ? $"Tedarikçi: {_invRow["AccountName"]} | Ürün: {_productName}" 
+                : $"Tedarikçi: {_invRow["AccountName"]} | Tarih: {_invRow["InvoiceDate"]}",
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
             ForeColor = Color.FromArgb(204, 251, 241),
             AutoSize = true,
@@ -277,10 +313,11 @@ public class InvoiceMetaDialog : Form
         gridPanel.Controls.Add(lblGridTitle);
         Controls.Add(gridPanel);
 
-        // Z-Index düzeni
+        // Z-Index düzeni: arka plan header ve footer, ortadaki grid ve meta panel önde kalır.
+        Controls.SetChildIndex(headerPanel, 0);
+        Controls.SetChildIndex(metaContainer, 1);
+        Controls.SetChildIndex(bottomPanel, 2);
+        Controls.SetChildIndex(gridPanel, 3);
         gridPanel.BringToFront();
-        bottomPanel.SendToBack();
-        metaContainer.SendToBack();
-        headerPanel.SendToBack();
     }
 }

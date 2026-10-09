@@ -11,7 +11,7 @@ if errorlevel 1 goto error
 echo.
 echo ========================================================
 echo KURULUM BASARIYLA OLUSTURULDU!
-echo Setup_Output\Bilensis_Setup_v2.4.0.exe
+echo Setup_Output\Bilensis_Setup_v2.7.0.exe
 echo ========================================================
 goto done
 

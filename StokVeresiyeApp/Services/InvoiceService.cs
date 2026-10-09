@@ -1,5 +1,6 @@
 using System.Data;
 using StokVeresiyeApp.Data;
+using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Models;
 
 namespace StokVeresiyeApp.Services;
@@ -74,14 +75,18 @@ SELECT SCOPE_IDENTITY();",
         // 2. Kalemleri ekle ve stok hareketlerini oluştur
         foreach (var item in invoice.Items)
         {
+            // Eğer kullanıcı bu kalemi faturadan silmeyi / hariç tutmayı seçtiyse kaydetme
+            if (string.Equals(item.ActionDecision, "Faturadan Sil", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.ActionDecision, "Sil", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             item.InvoiceId = invoiceId;
 
             // Eğer sistemde kayıtlı bir ürün ID'si yoksa otomatik ürün kartı oluştur
             if (!item.ProductId.HasValue || item.ProductId.Value <= 0)
             {
-                // Stok Kodu (Code): Ürünün benzersiz stok kodudur.
-                // Eğer faturada satıra ait ürün kodu varsa kullanılır, yoksa benzersiz kod üretilir.
-                // Fatura barkodu tüm ürünler için ortak olabileceğinden asla stok kodu olarak kullanılmaz!
                 string prodCode = !string.IsNullOrWhiteSpace(item.ItemCode) 
                     ? item.ItemCode.Trim()
                     : "URN-" + DateTime.Now.ToString("yyyyMMddHHmmss") + new Random().Next(100, 999);
@@ -91,11 +96,10 @@ SELECT SCOPE_IDENTITY();",
                 if (prodName.Length > 490) prodName = prodName.Substring(0, 490);
 
                 double purPrice = item.UnitPrice > 0 ? item.UnitPrice : 0;
-                double salePrice = purPrice * 1.30; // Varsayılan %30 kar marjı
+                // Yeni satış fiyatı belirlenmişse onu kullan, yoksa %30 kâr marjı
+                double salePrice = (item.NewSalePrice.HasValue && item.NewSalePrice.Value > 0) ? item.NewSalePrice.Value : purPrice * 1.30;
                 double vat = item.VatPercent > 0 ? item.VatPercent : 20;
 
-                // Ürün Kodu (ItemCode) veya Ürün Adına göre sistemde mevcut mu kontrol et
-                // Fatura barkodu tüm ürünlerde ortak olabileceği için barkoda göre eşleme yapılmaz!
                 var existing = FindProductByNameOrCode(prodName, item.ItemCode);
                 if (existing != null)
                 {
@@ -156,7 +160,7 @@ VALUES (@invId, @pId, @lNo, @bar, @code, @name, @qty, @unit, @price, @discP, @di
                 ("@total", item.LineTotal)
             );
 
-            // Stok hareketi oluştur ve ürün alış fiyatını güncelle
+            // Stok hareketi oluştur ve kullanıcının kararına göre ürün fiyatlarını güncelle
             if (updateStock && item.ProductId.HasValue && item.ProductId.Value > 0)
             {
                 // Eski stok ve fiyat bilgilerini oku
@@ -164,6 +168,7 @@ VALUES (@invId, @pId, @lNo, @bar, @code, @name, @qty, @unit, @price, @discP, @di
                 double oldStock = existingProd != null ? ProductService.GetStock(item.ProductId.Value) : 0;
                 double oldBuy = existingProd?.PurchasePrice ?? 0;
                 double oldSale = existingProd?.SalePrice ?? 0;
+                double finalSalePrice = oldSale;
 
                 Database.Execute(@"
 INSERT INTO StockMovements (MovementDate, ProductId, MovementType, Quantity, UnitPrice, DocumentNo, AccountId, WarehouseId, Note)
@@ -178,14 +183,33 @@ VALUES (@date, @pid, 'Gelen', @qty, @price, @doc, @accId, @wId, @note);",
                     ("@note", $"Fatura Girişi: {invoice.InvoiceNumber}")
                 );
 
-                // Ürün alış fiyatını faturadaki güncel fiyata güncelle
-                if (item.UnitPrice > 0)
+                // Kullanıcının kararı:
+                // 1) "Satış Fiyatına Zam Yap": Hem Alış Fiyatı hem de Yeni Satış Fiyatı güncellenir
+                if (string.Equals(item.ActionDecision, "Satış Fiyatına Zam Yap", StringComparison.OrdinalIgnoreCase) ||
+                    (item.NewSalePrice.HasValue && item.NewSalePrice.Value > 0 && item.NewSalePrice.Value != oldSale))
                 {
-                    Database.Execute("UPDATE Products SET PurchasePrice = @p WHERE Id = @id;",
-                        ("@p", item.UnitPrice),
+                    finalSalePrice = (item.NewSalePrice.HasValue && item.NewSalePrice.Value > 0) ? item.NewSalePrice.Value : oldSale;
+                    Database.Execute("UPDATE Products SET PurchasePrice = @p, SalePrice = @sp, WholesalePrice = @wp, SpecialPrice = @xp WHERE Id = @id;",
+                        ("@p", item.UnitPrice > 0 ? item.UnitPrice : oldBuy),
+                        ("@sp", finalSalePrice),
+                        ("@wp", (item.UnitPrice > 0 ? item.UnitPrice : oldBuy) * 1.15),
+                        ("@xp", (item.UnitPrice > 0 ? item.UnitPrice : oldBuy) * 1.20),
                         ("@id", item.ProductId.Value)
                     );
                 }
+                // 2) "Alış Fiyatını Güncelle": Sadece alış fiyatı güncellenir, satış fiyatı korunur
+                else if (string.Equals(item.ActionDecision, "Alış Fiyatını Güncelle", StringComparison.OrdinalIgnoreCase) ||
+                         string.IsNullOrWhiteSpace(item.ActionDecision)) // Varsayılan: alış fiyatını güncelle
+                {
+                    if (item.UnitPrice > 0)
+                    {
+                        Database.Execute("UPDATE Products SET PurchasePrice = @p WHERE Id = @id;",
+                            ("@p", item.UnitPrice),
+                            ("@id", item.ProductId.Value)
+                        );
+                    }
+                }
+                // 3) "Olduğu Gibi Al": Ürün kartının fiyatlarına dokunulmaz (eski alış ve satış korunur)
 
                 // Fiyat ve Stok Geçmişi (Tarihçe) Kaydet
                 double newStock = oldStock + item.Quantity;
@@ -210,8 +234,8 @@ VALUES (@date, @pid, 'Gelen', @qty, @price, @doc, @accId, @wId, @note);",
                     oldBuy: oldBuy,
                     newBuy: item.UnitPrice > 0 ? item.UnitPrice : oldBuy,
                     oldSale: oldSale,
-                    newSale: oldSale,
-                    note: $"Fatura Girişi: {invoice.InvoiceNumber}"
+                    newSale: finalSalePrice,
+                    note: $"Fatura Girişi: {invoice.InvoiceNumber} [{item.ActionDecision ?? "Normal"}]"
                 );
             }
         }
@@ -291,6 +315,141 @@ VALUES (@date, @accId, 'Alış', @doc, @amt, 'Fatura', 'Fatura Cari Kaydı', @no
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Fatura numarasına göre kayıtlı faturayı getirir.
+    /// </summary>
+    public static DataRow? GetInvoiceByNumber(string invoiceNumber)
+    {
+        if (string.IsNullOrWhiteSpace(invoiceNumber)) return null;
+        var dt = Database.Query(@"
+SELECT TOP 1 inv.*, COALESCE(a.Name, '-') AS AccountName, COALESCE(w.Name, 'Merkez Depo') AS WarehouseName
+FROM Invoices inv
+LEFT JOIN Accounts a ON inv.AccountId = a.Id
+LEFT JOIN Warehouses w ON inv.WarehouseId = w.Id
+WHERE inv.InvoiceNumber = @num
+ORDER BY inv.Id DESC;", ("@num", invoiceNumber.Trim()));
+        return dt.Rows.Count > 0 ? dt.Rows[0] : null;
+    }
+
+    /// <summary>
+    /// Sistemde mükerrer (aynı fatura numarasıyla birden fazla kez) kaydedilmiş faturaları tespit eder,
+    /// en dolu ve en güncel kaydı koruyarak fazlalık mükerrer kayıtları temizler.
+    /// </summary>
+    public static (int RemovedCount, int UniqueCount) DeduplicateInvoices()
+    {
+        var dtDups = Database.Query(@"
+SELECT InvoiceNumber, COUNT(*) AS Cnt
+FROM Invoices
+WHERE InvoiceNumber IS NOT NULL AND InvoiceNumber != ''
+GROUP BY InvoiceNumber
+HAVING COUNT(*) > 1;");
+
+        int removedTotal = 0;
+
+        foreach (DataRow r in dtDups.Rows)
+        {
+            string invNo = r["InvoiceNumber"]?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(invNo)) continue;
+
+            var allDups = Database.Query(@"
+SELECT i.Id, i.CreatedAt, 
+       (SELECT COUNT(*) FROM InvoiceItems ii WHERE ii.InvoiceId = i.Id) AS ItemCount,
+       CASE WHEN i.PdfData IS NOT NULL THEN 1 ELSE 0 END AS HasPdf
+FROM Invoices i
+WHERE i.InvoiceNumber = @num
+ORDER BY ItemCount DESC, HasPdf DESC, i.Id DESC;", ("@num", invNo));
+
+            if (allDups.Rows.Count <= 1) continue;
+
+            // En iyi kaydı sakla (en çok kalemi olan veya en son yüklenen)
+            for (int i = 1; i < allDups.Rows.Count; i++)
+            {
+                long removeId = Convert.ToInt64(allDups.Rows[i]["Id"]);
+                Database.Execute("DELETE FROM InvoiceItems WHERE InvoiceId = @id;", ("@id", removeId));
+                Database.Execute("DELETE FROM Invoices WHERE Id = @id;", ("@id", removeId));
+                removedTotal++;
+            }
+        }
+
+        var dtTotal = Database.Query("SELECT COUNT(*) AS Cnt FROM Invoices;");
+        int uniqueCount = dtTotal.Rows.Count > 0 ? Convert.ToInt32(dtTotal.Rows[0]["Cnt"]) : 0;
+
+        if (removedTotal > 0)
+        {
+            AuditLogService.Log("Fatura", "Mükerrer Temizleme", 0, "Faturalar", null, null, $"{removedTotal} adet mükerrer fatura kaydı temizlendi. Kalan tekil fatura: {uniqueCount}");
+        }
+
+        return (removedTotal, uniqueCount);
+    }
+
+    /// <summary>
+    /// Bir faturayı iptal eder ve oluşturduğu tüm stok ve cari hareketlerini geri alır (Rollback).
+    /// Geri dönüşü olmayan hata korkusunu ortadan kaldırır!
+    /// </summary>
+    public static (bool Success, string Message) CancelAndRollbackInvoice(long invoiceId, bool rollbackMovements = true)
+    {
+        try
+        {
+            var dt = Database.Query("SELECT InvoiceNumber, GrandTotal, AccountId, InvoiceType FROM Invoices WHERE Id = @id;", ("@id", invoiceId));
+            if (dt.Rows.Count == 0)
+                return (false, "Fatura bulunamadı.");
+
+            string invNo = dt.Rows[0]["InvoiceNumber"]?.ToString() ?? "";
+            double total = Convert.ToDouble(dt.Rows[0]["GrandTotal"] == DBNull.Value ? 0 : dt.Rows[0]["GrandTotal"]);
+            long accId = Convert.ToInt64(dt.Rows[0]["AccountId"] == DBNull.Value ? 0 : dt.Rows[0]["AccountId"]);
+            string invType = dt.Rows[0]["InvoiceType"]?.ToString() ?? "Fatura";
+
+            int stockMovesDeleted = 0;
+            int accountMovesDeleted = 0;
+
+            if (rollbackMovements && !string.IsNullOrWhiteSpace(invNo))
+            {
+                // 1. Faturanın soktuğu veya çıkardığı tüm stok hareketlerini geri al (sil)
+                var dtSm = Database.Query("SELECT COUNT(*) AS Cnt FROM StockMovements WHERE DocumentNo = @doc;", ("@doc", invNo));
+                stockMovesDeleted = dtSm.Rows.Count > 0 ? Convert.ToInt32(dtSm.Rows[0]["Cnt"]) : 0;
+                Database.Execute("DELETE FROM StockMovements WHERE DocumentNo = @doc;", ("@doc", invNo));
+
+                // 2. Faturanın cariye işlediği borç/alacak hareketlerini geri al (sil)
+                var dtAm = Database.Query("SELECT COUNT(*) AS Cnt FROM AccountMovements WHERE DocumentNo = @doc;", ("@doc", invNo));
+                accountMovesDeleted = dtAm.Rows.Count > 0 ? Convert.ToInt32(dtAm.Rows[0]["Cnt"]) : 0;
+                Database.Execute("DELETE FROM AccountMovements WHERE DocumentNo = @doc;", ("@doc", invNo));
+            }
+
+            // 3. Fatura ödeme ve kalemlerini sil
+            Database.Execute("DELETE FROM InvoicePayments WHERE InvoiceId = @id;", ("@id", invoiceId));
+            Database.Execute("DELETE FROM InvoiceItems WHERE InvoiceId = @id;", ("@id", invoiceId));
+
+            // 4. Faturanın kendisini sil
+            Database.Execute("DELETE FROM Invoices WHERE Id = @id;", ("@id", invoiceId));
+
+            AuditLogService.Log(
+                "Fatura",
+                "Fatura İptal & Geri Alma (Rollback)",
+                invoiceId,
+                invNo,
+                null,
+                null,
+                $"{invNo} numaralı {invType} ({total:N2} ₺) tamamen iptal edildi. " +
+                $"Geri alınan stok hareketi: {stockMovesDeleted}, geri alınan cari hareketi: {accountMovesDeleted}."
+            );
+
+            return (true, $"{invNo} faturası ve ilişkili {stockMovesDeleted} adet stok hareketi, {accountMovesDeleted} adet cari hareketi başarıyla geri alındı ve fatura iptal edildi.");
+        }
+        catch (Exception ex)
+        {
+            return (false, "Fatura geri alınırken hata oluştu: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Bir faturayı ve kalemlerini veritabanından tamamen siler (Stok ve cari hareketlerini de geri alır).
+    /// </summary>
+    public static bool DeleteInvoice(long invoiceId)
+    {
+        var result = CancelAndRollbackInvoice(invoiceId, rollbackMovements: true);
+        return result.Success;
     }
 
     /// <summary>
@@ -398,12 +557,7 @@ ORDER BY inv.InvoiceDate DESC, inv.Id DESC;",
                 string targetPath = Path.Combine(tempDir, $"{cleanNo}.pdf");
                 File.WriteAllBytes(targetPath, pdfData);
 
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = targetPath,
-                    UseShellExecute = true
-                });
-                return true;
+                return FileLauncherHelper.OpenDocument(targetPath, $"{invoiceNumber} Numaralı Fatura");
             }
             catch (Exception ex)
             {
@@ -427,21 +581,12 @@ ORDER BY inv.InvoiceDate DESC, inv.Id DESC;",
     /// </summary>
     public static bool OpenLatestInvoicePdfForProduct(long productId)
     {
-        var dt = Database.Query(@"
-SELECT TOP 1 inv.InvoiceNumber, inv.PdfPath, inv.PdfData
-FROM InvoiceItems ii
-INNER JOIN Invoices inv ON ii.InvoiceId = inv.Id
-WHERE ii.ProductId = @pid AND (inv.PdfData IS NOT NULL OR (inv.PdfPath IS NOT NULL AND inv.PdfPath != ''))
-ORDER BY inv.InvoiceDate DESC, inv.Id DESC;",
-            ("@pid", productId)
-        );
-
-        if (dt.Rows.Count > 0)
+        var (invRow, _) = GetProductInvoiceMetaAndAllItems(productId);
+        if (invRow != null)
         {
-            var row = dt.Rows[0];
-            string invNo = row["InvoiceNumber"]?.ToString() ?? "Fatura";
-            string? path = row["PdfPath"] == DBNull.Value ? null : row["PdfPath"]?.ToString();
-            byte[]? data = row["PdfData"] == DBNull.Value ? null : (byte[]?)row["PdfData"];
+            string invNo = invRow["InvoiceNumber"]?.ToString() ?? "Fatura";
+            string? path = invRow["PdfPath"] == DBNull.Value ? null : invRow["PdfPath"]?.ToString();
+            byte[]? data = invRow["PdfData"] == DBNull.Value ? null : (byte[]?)invRow["PdfData"];
 
             return OpenPdfDataOrPath(data, path, invNo);
         }
@@ -514,33 +659,96 @@ ORDER BY inv.InvoiceDate DESC, inv.Id DESC;",
     /// </summary>
     public static bool OpenPdfFile(string? filePath)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-        {
-            MessageBox.Show("Faturaya ait PDF dosyası bulunamadı veya arşiv klasöründe mevcut değil.", "PDF Bulunamadı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return false;
-        }
+        return FileLauncherHelper.OpenDocument(filePath, "Fatura PDF Belgesi");
+    }
 
-        try
+    /// <summary>
+    /// Fatura ID'sine göre fatura meta bilgilerini ve o faturadaki tüm kalemleri getirir.
+    /// </summary>
+    public static (DataRow? InvoiceRow, DataTable Items) GetInvoiceMetaById(long invoiceId)
+    {
+        var dtInv = Database.Query(@"
+SELECT TOP 1 
+    inv.Id,
+    inv.InvoiceNumber,
+    inv.InvoiceDate,
+    inv.InvoiceType,
+    COALESCE(inv.CustomizationId, '') AS CustomizationId,
+    COALESCE(inv.Scenario, '') AS Scenario,
+    COALESCE(inv.InvoiceKind, '') AS InvoiceKind,
+    COALESCE(inv.OrderNumber, '') AS OrderNumber,
+    COALESCE(inv.OrderDate, '') AS OrderDate,
+    COALESCE(inv.RelatedStore, '') AS RelatedStore,
+    COALESCE(inv.CargoId, '') AS CargoId,
+    COALESCE(inv.ReferenceNo, '') AS ReferenceNo,
+    COALESCE(inv.IssueTime, '') AS IssueTime,
+    inv.SubTotal,
+    inv.VatTotal,
+    inv.GrandTotal,
+    COALESCE(inv.PdfPath, '') AS PdfPath,
+    inv.PdfData,
+    COALESCE(inv.Note, '') AS Note,
+    COALESCE(a.Name, '-') AS AccountName
+FROM Invoices inv
+LEFT JOIN Accounts a ON inv.AccountId = a.Id
+WHERE inv.Id = @id;", ("@id", invoiceId));
+
+        if (dtInv.Rows.Count > 0)
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = filePath,
-                UseShellExecute = true
-            });
-            return true;
+            return (dtInv.Rows[0], GetInvoiceItems(invoiceId));
         }
-        catch (Exception ex)
+        return (null, new DataTable());
+    }
+
+    /// <summary>
+    /// Fatura Numarasına göre fatura meta bilgilerini ve o faturadaki tüm kalemleri getirir.
+    /// </summary>
+    public static (DataRow? InvoiceRow, DataTable Items) GetInvoiceMetaByNumber(string invoiceNumber)
+    {
+        if (string.IsNullOrWhiteSpace(invoiceNumber)) return (null, new DataTable());
+
+        var dtInv = Database.Query(@"
+SELECT TOP 1 
+    inv.Id,
+    inv.InvoiceNumber,
+    inv.InvoiceDate,
+    inv.InvoiceType,
+    COALESCE(inv.CustomizationId, '') AS CustomizationId,
+    COALESCE(inv.Scenario, '') AS Scenario,
+    COALESCE(inv.InvoiceKind, '') AS InvoiceKind,
+    COALESCE(inv.OrderNumber, '') AS OrderNumber,
+    COALESCE(inv.OrderDate, '') AS OrderDate,
+    COALESCE(inv.RelatedStore, '') AS RelatedStore,
+    COALESCE(inv.CargoId, '') AS CargoId,
+    COALESCE(inv.ReferenceNo, '') AS ReferenceNo,
+    COALESCE(inv.IssueTime, '') AS IssueTime,
+    inv.SubTotal,
+    inv.VatTotal,
+    inv.GrandTotal,
+    COALESCE(inv.PdfPath, '') AS PdfPath,
+    inv.PdfData,
+    COALESCE(inv.Note, '') AS Note,
+    COALESCE(a.Name, '-') AS AccountName
+FROM Invoices inv
+LEFT JOIN Accounts a ON inv.AccountId = a.Id
+WHERE inv.InvoiceNumber = @num
+ORDER BY inv.InvoiceDate DESC, inv.Id DESC;", ("@num", invoiceNumber.Trim()));
+
+        if (dtInv.Rows.Count > 0)
         {
-            MessageBox.Show("PDF dosyası açılırken hata oluştu:\n\n" + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return false;
+            long invId = Convert.ToInt64(dtInv.Rows[0]["Id"]);
+            return (dtInv.Rows[0], GetInvoiceItems(invId));
         }
+        return (null, new DataTable());
     }
 
     /// <summary>
     /// Bir ürüne ait en son alış faturasını ve o faturadaki TÜM diğer ürünleri getirir.
+    /// Ürün ID'si eşleşmezse stok hareketlerindeki Belge No ve Ürün Adı üzerinden akıllı ters arama yapar.
     /// </summary>
     public static (DataRow? InvoiceRow, DataTable Items) GetProductInvoiceMetaAndAllItems(long productId)
     {
+        // 1. Doğrudan InvoiceItems.ProductId ile eşleşen faturayı ara
         var dtInv = Database.Query(@"
 SELECT TOP 1 
     inv.Id,
@@ -571,17 +779,23 @@ ORDER BY inv.InvoiceDate DESC, inv.Id DESC;",
             ("@pid", productId)
         );
 
+        // 2. Ürünün stok hareketlerindeki DocumentNo (Fatura No) üzerinden Invoices'ta ara
         if (dtInv.Rows.Count == 0)
         {
-            var p = ProductService.GetById(productId);
-            if (p != null)
+            var dtDoc = Database.Query(@"
+SELECT TOP 1 DocumentNo 
+FROM StockMovements 
+WHERE ProductId = @pid AND DocumentNo IS NOT NULL AND DocumentNo != '' 
+ORDER BY MovementDate DESC, Id DESC;", ("@pid", productId));
+
+            if (dtDoc.Rows.Count > 0)
             {
-                dtInv = Database.Query(@"
+                string docNo = dtDoc.Rows[0]["DocumentNo"]?.ToString() ?? "";
+                if (!string.IsNullOrWhiteSpace(docNo))
+                {
+                    dtInv = Database.Query(@"
 SELECT TOP 1 
-    inv.Id,
-    inv.InvoiceNumber,
-    inv.InvoiceDate,
-    inv.InvoiceType,
+    inv.Id, inv.InvoiceNumber, inv.InvoiceDate, inv.InvoiceType,
     COALESCE(inv.CustomizationId, '') AS CustomizationId,
     COALESCE(inv.Scenario, '') AS Scenario,
     COALESCE(inv.InvoiceKind, '') AS InvoiceKind,
@@ -591,20 +805,49 @@ SELECT TOP 1
     COALESCE(inv.CargoId, '') AS CargoId,
     COALESCE(inv.ReferenceNo, '') AS ReferenceNo,
     COALESCE(inv.IssueTime, '') AS IssueTime,
-    inv.SubTotal,
-    inv.VatTotal,
-    inv.GrandTotal,
-    COALESCE(inv.PdfPath, '') AS PdfPath,
-    inv.PdfData,
+    inv.SubTotal, inv.VatTotal, inv.GrandTotal,
+    COALESCE(inv.PdfPath, '') AS PdfPath, inv.PdfData,
+    COALESCE(inv.Note, '') AS Note,
+    COALESCE(a.Name, '-') AS AccountName
+FROM Invoices inv
+LEFT JOIN Accounts a ON inv.AccountId = a.Id
+WHERE inv.InvoiceNumber = @doc
+ORDER BY inv.InvoiceDate DESC, inv.Id DESC;", ("@doc", docNo));
+                }
+            }
+        }
+
+        // 3. Barkod, Kod veya Ürün Adı eşleşmesiyle Invoices'ta ara
+        if (dtInv.Rows.Count == 0)
+        {
+            var p = ProductService.GetById(productId);
+            if (p != null)
+            {
+                string namePart = p.Name.Length > 5 ? p.Name.Substring(0, 5) : p.Name;
+                dtInv = Database.Query(@"
+SELECT TOP 1 
+    inv.Id, inv.InvoiceNumber, inv.InvoiceDate, inv.InvoiceType,
+    COALESCE(inv.CustomizationId, '') AS CustomizationId,
+    COALESCE(inv.Scenario, '') AS Scenario,
+    COALESCE(inv.InvoiceKind, '') AS InvoiceKind,
+    COALESCE(inv.OrderNumber, '') AS OrderNumber,
+    COALESCE(inv.OrderDate, '') AS OrderDate,
+    COALESCE(inv.RelatedStore, '') AS RelatedStore,
+    COALESCE(inv.CargoId, '') AS CargoId,
+    COALESCE(inv.ReferenceNo, '') AS ReferenceNo,
+    COALESCE(inv.IssueTime, '') AS IssueTime,
+    inv.SubTotal, inv.VatTotal, inv.GrandTotal,
+    COALESCE(inv.PdfPath, '') AS PdfPath, inv.PdfData,
     COALESCE(inv.Note, '') AS Note,
     COALESCE(a.Name, '-') AS AccountName
 FROM InvoiceItems ii
 INNER JOIN Invoices inv ON ii.InvoiceId = inv.Id
 LEFT JOIN Accounts a ON inv.AccountId = a.Id
-WHERE ((ii.Barcode = @b AND @b != '') OR (ii.ItemCode = @c AND @c != ''))
+WHERE ((ii.Barcode = @b AND @b != '') OR (ii.ItemCode = @c AND @c != '') OR (ii.ItemName LIKE @n AND @n != ''))
 ORDER BY inv.InvoiceDate DESC, inv.Id DESC;",
                     ("@b", p.Barcode ?? ""),
-                    ("@c", p.Code ?? "")
+                    ("@c", p.Code ?? ""),
+                    ("@n", $"%{namePart}%")
                 );
             }
         }

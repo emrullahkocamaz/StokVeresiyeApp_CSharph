@@ -84,10 +84,36 @@ public static class InvoiceParserService
     /// </summary>
     public static ParsedInvoiceResult ParseXmlInvoice(string filePath)
     {
-        var result = new ParsedInvoiceResult { FileType = "XML" };
         try
         {
             var doc = XDocument.Load(filePath);
+            return ParseXmlInvoiceFromDoc(doc);
+        }
+        catch (Exception ex)
+        {
+            return new ParsedInvoiceResult { Success = false, ErrorMessage = "XML dosyası yüklenemedi: " + ex.Message };
+        }
+    }
+
+    public static ParsedInvoiceResult ParseXmlInvoiceFromBytes(byte[] xmlBytes)
+    {
+        try
+        {
+            using var ms = new MemoryStream(xmlBytes);
+            var doc = XDocument.Load(ms);
+            return ParseXmlInvoiceFromDoc(doc);
+        }
+        catch (Exception ex)
+        {
+            return new ParsedInvoiceResult { Success = false, ErrorMessage = "Gömülü XML ayrıştırma hatası: " + ex.Message };
+        }
+    }
+
+    public static ParsedInvoiceResult ParseXmlInvoiceFromDoc(XDocument doc)
+    {
+        var result = new ParsedInvoiceResult { FileType = "XML" };
+        try
+        {
             XNamespace cbc = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2";
             XNamespace cac = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2";
 
@@ -229,6 +255,29 @@ public static class InvoiceParserService
         {
             using (var document = PdfDocument.Open(filePath))
             {
+                // 🌟 1. ÖNCELİK (Altın Standart): PDF/A-3 Gömülü UBL-TR e-Fatura XML Çözümleme
+                // Türkiye'deki resmi e-Fatura ve e-Arşiv PDF'lerinin içine gömülü orijinal XML yer alır.
+                try
+                {
+                    if (document.Advanced.TryGetEmbeddedFiles(out var embeddedFiles) && embeddedFiles != null && embeddedFiles.Count > 0)
+                    {
+                        foreach (var ef in embeddedFiles)
+                        {
+                            if (ef.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) || ef.Name.Contains("xml", StringComparison.OrdinalIgnoreCase))
+                            {
+                                byte[] xmlBytes = ef.Bytes.ToArray();
+                                var xmlRes = ParseXmlInvoiceFromBytes(xmlBytes);
+                                if (xmlRes.Success && xmlRes.Items.Count > 0)
+                                {
+                                    xmlRes.FileType = "PDF (Gömülü e-Fatura XML)";
+                                    return xmlRes;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
                 foreach (var page in document.GetPages())
                 {
                     // Sayfadaki gömülü barkod ve QR kod resimlerini ZXing ile tara
@@ -510,96 +559,67 @@ public static class InvoiceParserService
     private static List<ParsedInvoiceItem> ExtractItemsFromOrderedLines(List<string> lines)
     {
         var items = new List<ParsedInvoiceItem>();
-        int headerIdx = -1;
-        int footerIdx = lines.Count;
-
-        // 1. Tablo Başlangıç (Header) ve Bitiş (Footer) Sınırlarını Belirle
-        for (int i = 0; i < lines.Count; i++)
-        {
-            string t = lines[i].Trim();
-            if (string.IsNullOrWhiteSpace(t)) continue;
-
-            if (headerIdx == -1)
-            {
-                // Başlık Satırı Kontrolü:
-                // "Ürünün Adı", "Mal ve Hizmet Açıklaması", "Mal / Hizmet", "Mal Hizmet", "Ürün EAN Kodu", "Barkod", "Birim Fiyat", "Sıra No"
-                if (Regex.IsMatch(t, @"(Sıra\s*No|Ürünün\s*Adı|Ürün\s*Adı|Mal\s*(?:ve\s*)?Hizmet(?:\s*Açıklamas[ıi])?|Mal\s*\/|Ürün\s*Açıklamas[ıi]|Ürün\s*EAN|EAN\s*Kodu|Barkod|Birim\s*Fiyat)", RegexOptions.IgnoreCase) ||
-                    (t.Contains("Sıra") && (t.Contains("Miktar") || t.Contains("Birim") || t.Contains("Fiyat") || t.Contains("Barkod") || t.Contains("EAN") || t.Contains("Hizmet"))))
-                {
-                    headerIdx = i;
-                    // Eğer tablonun 2. başlık satırı varsa (örn: "No Tutarı Tutarı Oranı Tutarı" veya "Açıklaması Miktarı")
-                    if (i + 1 < lines.Count && Regex.IsMatch(lines[i + 1].Trim(), @"^(No\b|Tutarı\b|Oranı\b|KDV\b|utarı\b|Açıklamas[ıi]\b|Miktar[ıi]\b|Fiyat[ıi]\b)", RegexOptions.IgnoreCase))
-                    {
-                        headerIdx = i + 1;
-                    }
-                }
-            }
-            else
-            {
-                // Tablo sonu tespiti (Alt toplamlar ve dipnotlar)
-                if (Regex.IsMatch(t, @"(Mal\s*Hizmet\s*Toplam|KDV\s*Matrahı|Vergi\s*Hariç|Hesaplanan\s*KDV|Vergiler\s*Dahil\s*Toplam|Ödenecek\s*Tutar|Genel\s*Toplam|YALNIZ\b|İrsaliye\s*yerine|Sistem\s*No|Notlar\b|Dipnot\b)", RegexOptions.IgnoreCase))
-                {
-                    footerIdx = i;
-                    break;
-                }
-            }
-        }
-
-        if (headerIdx == -1)
-        {
-            return items;
-        }
-
-        // 2. Tablo Satırlarını Topla
-        var tableLines = lines.Skip(headerIdx + 1).Take(footerIdx - (headerIdx + 1)).ToList();
-
-        // 3. Satırları Tek Tek Ürün Kalemleri Olarak Topla
-        // Bir satır şu durumlarda YENİ ÜRÜN satırıdır:
-        // a) Sıra No ile başlayan satırlar (örn: "1 9789751968531 Kuran Yolu..." veya "1 Kuran Yolu..." veya "1 URN-12...")
-        // b) Doğrudan 13 haneli EAN/Barkod ile başlayan satırlar (örn: "9789751968531 Kuran Yolu...")
         var mergedRows = new List<string>();
         string currentMerged = "";
 
-        foreach (var rawLine in tableLines)
+        // Tablo başlık ve genel dipnot filtreleri (bu satırlar ürün satırı değildir)
+        bool isInsideTable = false;
+
+        foreach (var rawLine in lines)
         {
             string t = rawLine.Trim();
             if (string.IsNullOrWhiteSpace(t) || t == "." || t == "-" || t == ":") continue;
 
-            // Alt toplam veya kdv matrahı metin kalıntılarını durdur
-            if (Regex.IsMatch(t, @"(Mal\s*Hizmet\s*Toplam|KDV\s*Matrahı|Vergi\s*Hariç|Hesaplanan\s*KDV|Vergiler\s*Dahil|Ödenecek\s*Tutar)", RegexOptions.IgnoreCase))
+            // 1. Genel Fatura Dipnotları, Banka ve Alt Toplam Satırları (Ürün kalemi değildir)
+            if (Regex.IsMatch(t, @"(Mal\s*Hizmet\s*Toplam|Toplam\s*İskonto|KDV\s*Matrahı|Vergi\s*Hariç|Hesaplanan\s*KDV|Vergiler\s*Dahil|Ödenecek\s*Tutar|Genel\s*Toplam|YALNIZ\b|İrsaliye\s*(?:Yerine|yerine)|Ödeme\s*Şekli|Banka\s*Hesap|IBAN|Toplam\s*Kilo|Toplam\s*Gram|Toplam\s*Adet|Lütfen\s*banka|Vergi\s*İstisna|Muafiyet|3065\s*Sayılı|suluova\s*satış|about:blank|e-Fatura\s*Page|VAKIFLAR|ZİRAAT|HALK\s*BANKASI)", RegexOptions.IgnoreCase))
             {
-                break;
-            }
-
-            // Başlık satırı kalıntılarını filtrele (örn: ikinci sayfa başlığı veya kolon etiketleri)
-            bool isHeaderResidual = Regex.IsMatch(t, @"^(Sıra|No\b|Mal\s*(?:ve\s*)?Hizmet|Ürünün\s*Adı|Ürün\s*Adı|Mal\s*\/|Miktar|Birim|Fiyat|KDV|Tutar|Toplam|Matrah|Açıklamas[ıi])", RegexOptions.IgnoreCase);
-            if (isHeaderResidual)
-            {
+                if (!string.IsNullOrWhiteSpace(currentMerged))
+                {
+                    mergedRows.Add(currentMerged);
+                    currentMerged = "";
+                }
                 continue;
             }
 
-            // Yeni ürün satırı başlangıcı:
-            // 1. Sıra Numarası + (Harf, EAN/Barkod veya Kod): Örn: "1 978975...", "1 Kuran...", "2 8690...", "3 Kitap..."
-            bool startsWithLineNo = Regex.IsMatch(t, @"^\d{1,3}\s+([A-Za-zÇĞİÖŞÜçğıöşü\(\[\{]|\d{8,14}\b|[A-Z0-9\-]{3,})");
+            // 2. Tablo Başlık Satırları (Sıra No, Barkod, Mal ve Hizmet Açıklaması vb.)
+            if (Regex.IsMatch(t, @"^(Sıra\s*No|Barkod\s*Miktar|Mal\s*(?:ve\s*)?Hizmet|Ürünün\s*Adı|Ürün\s*Adı|Birim\s*Fiyat|İskonto\s*KDV|KDV\s*Oranı|Tutar\b)", RegexOptions.IgnoreCase) ||
+                (t.Contains("Barkod") && t.Contains("Miktar") && (t.Contains("Mal") || t.Contains("Hizmet") || t.Contains("Fiyat"))))
+            {
+                isInsideTable = true;
+                if (!string.IsNullOrWhiteSpace(currentMerged))
+                {
+                    mergedRows.Add(currentMerged);
+                    currentMerged = "";
+                }
+                continue;
+            }
 
-            // 2. Doğrudan EAN/Barkod ile başlayan satırlar: "9789751968531 Kuran Yolu...", "8690123456789 Bisküvi..."
-            bool startsWithEanBarcode = Regex.IsMatch(t, @"^(97[89]\d{10}|86[89]\d{10}|\d{13})\b");
+            // 3. Yeni Ürün Satırı Başlangıcı Tespiti:
+            // a) Sıra Numarası ile başlayan satırlar (örn: "1 978605...", "18 978625...", "1 Evimin...")
+            bool startsWithLineNo = Regex.IsMatch(t, @"^\d{1,3}\s+(\d{8,14}|[A-Za-zÇĞİÖŞÜçğıöşü\(\[\{]|[A-Z0-9\-]{3,})");
+            // b) Doğrudan 13 haneli EAN/Barkod ile başlayan satırlar: "978625...", "8690...", "6971..."
+            bool startsWithEanBarcode = Regex.IsMatch(t, @"^(97[89]\d{10}|86[89]\d{10}|69\d{11}|\d{13})\b");
 
             if (startsWithLineNo || startsWithEanBarcode)
             {
+                isInsideTable = true;
                 if (!string.IsNullOrWhiteSpace(currentMerged))
                 {
                     mergedRows.Add(currentMerged);
                 }
                 currentMerged = t;
             }
-            else
+            else if (isInsideTable)
             {
-                // Bir önceki ürünün çok satırlı açıklama veya isim devamı (örn: alt satıra sarkan kitap başlığı)
-                if (string.IsNullOrWhiteSpace(currentMerged))
-                    currentMerged = t;
-                else
-                    currentMerged += " " + t;
+                // Bir önceki ürünün alt satıra sarkan uzun açıklaması (örn: çok satırlı kitap başlığı)
+                // Ancak banka veya cari satırı değilse birleştir
+                if (!Regex.IsMatch(t, @"^(VAKIFLAR|ZİRAAT|HALK|TR\d{2}|MUSTERINO|VKN|Sayfa)", RegexOptions.IgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(currentMerged))
+                        currentMerged = t;
+                    else
+                        currentMerged += " " + t;
+                }
             }
         }
 
@@ -613,7 +633,7 @@ public static class InvoiceParserService
         foreach (var rowText in mergedRows)
         {
             var item = ParseSingleItemRow(rowText, lineCounter);
-            if (item != null)
+            if (item != null && item.LineTotal > 0)
             {
                 items.Add(item);
                 lineCounter++;
@@ -781,44 +801,117 @@ public static class InvoiceParserService
         if (numbers.Count == 1)
         {
             unitPrice = numbers[0];
-            lineTotal = qty * unitPrice;
+            lineTotal = Math.Round(qty * unitPrice, 2);
         }
         else if (numbers.Count == 2)
         {
-            unitPrice = Math.Min(numbers[0], numbers[1]);
-            lineTotal = Math.Max(numbers[0], numbers[1]);
+            double n1 = numbers[0];
+            double n2 = numbers[1];
+
+            // İskonto kontrolü: Faturada [Birim Fiyat] [%İskonto] [Tutar]
+            // Örnek: n1 = 470, n2 = 329, discountPercent = 30
+            if (discountPercent > 0)
+            {
+                double expectedNet1 = Math.Round((qty * n1) * (1.0 - (discountPercent / 100.0)), 2);
+                if (Math.Abs(expectedNet1 - n2) < 2.0)
+                {
+                    // n1 Liste Birim Fiyatı (470 TL), n2 Net Tutar (329 TL)
+                    unitPrice = n1;
+                    lineTotal = n2;
+                    discountAmount = Math.Round((qty * n1) - n2, 2);
+                }
+                else
+                {
+                    double expectedNet2 = Math.Round((qty * n2) * (1.0 - (discountPercent / 100.0)), 2);
+                    if (Math.Abs(expectedNet2 - n1) < 2.0)
+                    {
+                        unitPrice = n2;
+                        lineTotal = n1;
+                        discountAmount = Math.Round((qty * n2) - n1, 2);
+                    }
+                    else
+                    {
+                        // İskontolu net tutar n2, brüt n1
+                        unitPrice = Math.Max(n1, n2);
+                        lineTotal = Math.Min(n1, n2);
+                        discountAmount = Math.Round((qty * unitPrice) - lineTotal, 2);
+                    }
+                }
+            }
+            else
+            {
+                // İskonto yoksa: [Birim Fiyat, Satır Toplamı]
+                if (qty > 1 && Math.Abs(n1 * qty - n2) < 2.0)
+                {
+                    unitPrice = n1;
+                    lineTotal = n2;
+                }
+                else if (qty > 1 && Math.Abs(n2 * qty - n1) < 2.0)
+                {
+                    unitPrice = n2;
+                    lineTotal = n1;
+                }
+                else
+                {
+                    unitPrice = n1;
+                    lineTotal = n2;
+                }
+            }
         }
         else if (numbers.Count >= 3)
         {
-            // Doğrulama: candPrice * qty ≈ candTotal formülünü ara
+            // 3 veya daha fazla sayı: [Birim Fiyat, İskonto Tutarı, Satır Toplamı] veya [Birim Fiyat, KDV%, Satır Toplamı]
             bool found = false;
-            for (int i = 0; i < numbers.Count - 1; i++)
+
+            // Öncelik 1: İskontolu hesaplama: (qty * p) * (1 - disc%) ≈ total
+            if (discountPercent > 0)
             {
-                for (int j = i + 1; j < numbers.Count; j++)
+                for (int i = 0; i < numbers.Count - 1; i++)
                 {
-                    if (Math.Abs(numbers[i] * qty - numbers[j]) < 1.0)
+                    for (int j = i + 1; j < numbers.Count; j++)
                     {
-                        unitPrice = numbers[i];
-                        lineTotal = numbers[j];
-                        found = true;
-                        break;
+                        double p = numbers[i];
+                        double tot = numbers[j];
+                        double expected = Math.Round((qty * p) * (1.0 - (discountPercent / 100.0)), 2);
+                        if (Math.Abs(expected - tot) < 2.0)
+                        {
+                            unitPrice = p;
+                            lineTotal = tot;
+                            discountAmount = Math.Round((qty * p) - tot, 2);
+                            found = true;
+                            break;
+                        }
                     }
+                    if (found) break;
                 }
-                if (found) break;
+            }
+
+            // Öncelik 2: Doğrudan qty * p ≈ total
+            if (!found)
+            {
+                for (int i = 0; i < numbers.Count - 1; i++)
+                {
+                    for (int j = i + 1; j < numbers.Count; j++)
+                    {
+                        if (Math.Abs(numbers[i] * qty - numbers[j]) < 2.0)
+                        {
+                            unitPrice = numbers[i];
+                            lineTotal = numbers[j];
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found) break;
+                }
             }
 
             if (!found)
             {
                 unitPrice = numbers[0];
                 lineTotal = numbers[numbers.Count - 1];
-
-                // Ara sayılarda KDV oranı (%1, %10, %20) var mı?
-                for (int k = 1; k < numbers.Count - 1; k++)
+                if (discountPercent > 0 && lineTotal < (qty * unitPrice))
                 {
-                    if (numbers[k] == 1 || numbers[k] == 10 || numbers[k] == 20)
-                    {
-                        vatRate = numbers[k];
-                    }
+                    discountAmount = Math.Round((qty * unitPrice) - lineTotal, 2);
                 }
             }
         }
@@ -840,8 +933,8 @@ public static class InvoiceParserService
         // Eğer isim çok kısaysa veya sadece anlamsız karakterse satır geçerli değildir
         if (cleanName.Length < 2) return null;
 
-        // "No utarı utarı", "KDV Matrahı" vb. kaçak kelimeler varsa satırı atla
-        if (Regex.IsMatch(cleanName, @"(utarı|Matrahı|Oranı\s*utarı|Toplam\s*Tutarı)", RegexOptions.IgnoreCase))
+        // "No utarı utarı", "KDV Matrahı", banka, muafiyet vb. kaçak kelimeler varsa satırı atla
+        if (Regex.IsMatch(cleanName, @"(utarı|Matrahı|Oranı\s*utarı|Toplam\s*Tutarı|Hesaplanan|VAKIFLAR|ZİRAAT|HALK\s*BANKASI|IBAN|Vergi\s*İstisna|Muafiyet|3065\s*Sayılı|Ödenecek\s*Tutar|Vergiler\s*Dahil|Toplam\s*İskonto)", RegexOptions.IgnoreCase))
         {
             return null;
         }

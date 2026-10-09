@@ -181,6 +181,13 @@ public class ProductVariantsDialog : BaseModernForm
 
     private void DeleteVariantClick()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.ProductVariants) && !curUser.HasPermission(UserPermissions.ProductsDelete) && !curUser.IsSuperUser)
+        {
+            MessageBox.Show("Ürün varyantı silme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         if (_selectedVariantId <= 0)
         {
             MessageBox.Show("Lütfen silmek istediğiniz varyantı tablodan seçiniz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);

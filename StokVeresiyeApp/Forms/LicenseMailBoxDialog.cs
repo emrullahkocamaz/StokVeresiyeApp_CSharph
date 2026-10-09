@@ -197,9 +197,10 @@ public class LicenseMailBoxDialog : Form
         content.Controls.Add(_lblStatus);
 
         Controls.Add(content);
+        Controls.SetChildIndex(header, 0);
+        Controls.SetChildIndex(bottom, 1);
+        Controls.SetChildIndex(content, 2);
         content.BringToFront();
-        header.SendToBack();
-        bottom.SendToBack();
     }
 
     private async void SendMailClick(object? sender, EventArgs e)

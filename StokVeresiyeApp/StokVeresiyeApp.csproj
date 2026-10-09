@@ -9,7 +9,7 @@
     <AssemblyTitle>Bilensis - Stok &amp; Cari Yönetim Sistemi</AssemblyTitle>
     <Product>Bilensis</Product>
     <Description>Bilensis - Profesyonel Stok &amp; Cari Yönetim Sistemi</Description>
-    <Version>2.5.0</Version>
+    <Version>2.7.0</Version>
     <ApplicationIcon>Resources\app.ico</ApplicationIcon>
     <NoWarn>$(NoWarn);WFO1000</NoWarn>
   </PropertyGroup>
@@ -22,7 +22,6 @@
     <PackageReference Include="Krypton.Toolkit" Version="105.26.7.201" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     <PackageReference Include="ClosedXML" Version="0.105.0" />
-    <PackageReference Include="Telegram.Bot" Version="22.10.3.2" />
     <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
     <PackageReference Include="ZXing.Net" Version="0.16.11" />
     <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.16" />

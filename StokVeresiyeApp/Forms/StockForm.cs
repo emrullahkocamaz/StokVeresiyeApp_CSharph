@@ -18,6 +18,7 @@ public class StockForm : BaseModernForm
     private readonly ComboBox _cmbAccount = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _txtDocNo = new();
     private readonly TextBox _txtNote = new();
+    private readonly DataGridView _gridReadyProducts = new();
 
     public StockForm() : base("Stok Hareketi Ekle", 620, 520)
     {
@@ -54,6 +55,15 @@ public class StockForm : BaseModernForm
         AddRow("Belge / İrsaliye No", _txtDocNo);
         AddRow("Açıklama / Not", _txtNote);
 
+        _gridReadyProducts.ReadOnly = true;
+        _gridReadyProducts.AllowUserToAddRows = false;
+        _gridReadyProducts.RowHeadersVisible = false;
+        _gridReadyProducts.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _gridReadyProducts.Font = UITheme.SmallFont;
+        _gridReadyProducts.MinimumSize = new Size(0, 150);
+        BindReadyProducts();
+        AddRow("Satışa Hazır Ürünler", _gridReadyProducts, 190);
+
         _cmbProduct.SelectedIndexChanged += ProductChanged;
         _txtQty.TextChanged += UpdateTotal;
         _txtUnitPrice.TextChanged += UpdateTotal;
@@ -64,6 +74,44 @@ public class StockForm : BaseModernForm
         {
             ProductChanged(null, EventArgs.Empty);
         }
+    }
+
+    private void BindReadyProducts()
+    {
+        try
+        {
+            var dt = ProductService.GetAllProducts();
+            _gridReadyProducts.DataSource = dt;
+
+            if (_gridReadyProducts.Columns.Contains("Id")) _gridReadyProducts.Columns["Id"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Fatura No")) _gridReadyProducts.Columns["Fatura No"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Açılış")) _gridReadyProducts.Columns["Açılış"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Gelen")) _gridReadyProducts.Columns["Gelen"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Satılan")) _gridReadyProducts.Columns["Satılan"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Kritik Seviye")) _gridReadyProducts.Columns["Kritik Seviye"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Toplam Tutar")) _gridReadyProducts.Columns["Toplam Tutar"].Visible = false;
+            if (_gridReadyProducts.Columns.Contains("Özellik / Tür")) _gridReadyProducts.Columns["Özellik / Tür"].Visible = false;
+
+            if (_gridReadyProducts.Columns.Contains("Kalan Stok"))
+            {
+                _gridReadyProducts.Columns["Kalan Stok"].HeaderText = "Stok";
+                _gridReadyProducts.Columns["Kalan Stok"].DefaultCellStyle.Format = "N2";
+                _gridReadyProducts.Columns["Kalan Stok"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            }
+
+            if (_gridReadyProducts.Columns.Contains("Satış Fiyatı"))
+            {
+                _gridReadyProducts.Columns["Satış Fiyatı"].HeaderText = "Satış Fiyatı";
+                _gridReadyProducts.Columns["Satış Fiyatı"].DefaultCellStyle.Format = "N2";
+                _gridReadyProducts.Columns["Satış Fiyatı"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            }
+
+            if (_gridReadyProducts.Columns.Contains("Ürün Adı"))
+            {
+                _gridReadyProducts.Columns["Ürün Adı"].HeaderText = "Ürün";
+            }
+        }
+        catch { }
     }
 
     private void ProductChanged(object? sender, EventArgs e)

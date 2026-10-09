@@ -8,9 +8,33 @@ namespace StokVeresiyeApp;
 internal static class Program
 {
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
+        if (args.Length >= 2 && args[0] == "--test-pdf")
+        {
+            var res = InvoiceParserService.ParseInvoiceFile(args[1]);
+            Console.WriteLine($"SUCCESS: {res.Success}");
+            Console.WriteLine($"INVOICE NO: {res.InvoiceNumber}");
+            Console.WriteLine($"GRAND TOTAL: {res.GrandTotal}");
+            Console.WriteLine($"SUBTOTAL: {res.SubTotal}");
+            Console.WriteLine($"VAT: {res.VatTotal}");
+            Console.WriteLine($"ITEMS COUNT: {res.Items.Count}");
+            double sumItems = 0;
+            foreach (var it in res.Items)
+            {
+                Console.WriteLine($"#{it.LineNo} | Barcode: {it.Barcode} | Name: {it.ItemName} | Qty: {it.Quantity} | Price: {it.UnitPrice} | Disc%: {it.DiscountPercent} | LineTotal: {it.LineTotal}");
+                sumItems += it.LineTotal;
+            }
+            Console.WriteLine($"SUM OF ITEMS: {sumItems:N2}");
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
+        try
+        {
+            Application.SetDefaultFont(new Font("Segoe UI", 9.5f, FontStyle.Regular));
+        }
+        catch { }
         AppThemeService.InitializeTheme();
 
         // 1. Beklenmeyen çökmeleri yakalamak için global hata yakalayıcılar
@@ -46,7 +70,6 @@ internal static class Program
                 LicenseService.Initialize();
                 UserService.Initialize();
                 InvoiceService.MigrateExistingPdfsToDatabase();
-                _ = Task.Run(async () => await TelegramBotService.AutoStartIfEnabledAsync());
                 _ = Task.Run(() => MobileScannerService.Start());
                 databaseReady = true;
             }

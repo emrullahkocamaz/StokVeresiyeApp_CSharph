@@ -24,12 +24,22 @@ public class NotificationCenterDialog : Form
     {
         Text = "🔔 Bildirim & Uyarı Merkezi (Kritik Stok & Vadesi Dolan Veresiye SMS)";
         ClientSize = new Size(1160, 690);
+        MinimumSize = new Size(980, 620);
+        AutoScroll = true;
         StartPosition = FormStartPosition.CenterParent;
         BackColor = UITheme.Background;
         Font = UITheme.RegularFont;
 
         BuildUI();
-        LoadData();
+        try
+        {
+            LoadData();
+        }
+        catch
+        {
+            _lblAlertSummary.Text = "⚠️ Bildirim verileri yüklenirken bir hata oluştu. Lütfen daha sonra tekrar deneyin.";
+            _lblAlertSummary.ForeColor = UITheme.Danger;
+        }
 
         if (initialTab >= 0 && initialTab < _tabControl.TabCount)
         {
@@ -92,10 +102,11 @@ public class NotificationCenterDialog : Form
         bottomPanel.Controls.Add(btnClose);
         Controls.Add(bottomPanel);
 
-        // Z-Order
+        // Z-Order: arka plan başlık ve alt buton katmanları sabit kalsın, içerik sekmesi üstte görünsün.
+        Controls.SetChildIndex(headerPanel, 0);
+        Controls.SetChildIndex(bottomPanel, 1);
+        Controls.SetChildIndex(_tabControl, 2);
         _tabControl.BringToFront();
-        headerPanel.SendToBack();
-        bottomPanel.SendToBack();
     }
 
     private void BuildCriticalStockTab()
@@ -273,9 +284,17 @@ public class NotificationCenterDialog : Form
 
     private void UpdateSummaryBadge()
     {
-        var counts = NotificationService.GetAlertCounts();
-        _lblAlertSummary.Text = $"⚠️ Aktif Durumlar: {counts.CriticalStockCount} Kritik Stok | {counts.OverdueReceivableCount} Vadesi Geçmiş Veresiye | {counts.ExpiringProductCount} SKT Uyarısı";
-        _lblAlertSummary.ForeColor = counts.TotalAlertCount > 0 ? Color.FromArgb(220, 38, 38) : UITheme.Success;
+        try
+        {
+            var counts = NotificationService.GetAlertCounts();
+            _lblAlertSummary.Text = $"⚠️ Aktif Durumlar: {counts.CriticalStockCount} Kritik Stok | {counts.OverdueReceivableCount} Vadesi Geçmiş Veresiye | {counts.ExpiringProductCount} SKT Uyarısı";
+            _lblAlertSummary.ForeColor = counts.TotalAlertCount > 0 ? Color.FromArgb(220, 38, 38) : UITheme.Success;
+        }
+        catch
+        {
+            _lblAlertSummary.Text = "⚠️ Bildirim özeti yüklenemedi.";
+            _lblAlertSummary.ForeColor = UITheme.Danger;
+        }
     }
 
     private void LoadExpiringProducts()

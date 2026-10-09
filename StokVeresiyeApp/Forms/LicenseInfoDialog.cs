@@ -180,9 +180,10 @@ public class LicenseInfoDialog : Form
         content.Controls.Add(btnMail);
 
         Controls.Add(content);
+        Controls.SetChildIndex(header, 0);
+        Controls.SetChildIndex(bottom, 1);
+        Controls.SetChildIndex(content, 2);
         content.BringToFront();
-        header.SendToBack();
-        bottom.SendToBack();
     }
 
     private void DeactivateClick(object? sender, EventArgs e)

@@ -34,6 +34,14 @@ public class QuickSaleDialog : BaseModernForm
         Visible = false,
         AutoSize = true
     };
+    protected Label _lblTouchTitle = new()
+    {
+        Text = "⚡ Hızlı Satış Butonları (POS)",
+        Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+        ForeColor = Color.FromArgb(30, 41, 59),
+        Dock = DockStyle.Top,
+        Height = 26
+    };
 
     private readonly KryptonTextBox _txtBarcodeScan = new() 
     { 
@@ -63,9 +71,29 @@ public class QuickSaleDialog : BaseModernForm
     // Fiş / Sepet Bekletme Butonları
     private KryptonButton? _btnParkCart;
     private KryptonButton? _btnOpenParked;
+    private readonly List<BulkSaleLine> _bulkSaleLines = new();
+    private DataGridView? _gridBulkSale;
+
+    private sealed class BulkSaleLine
+    {
+        public long ProductId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public double Quantity { get; set; }
+        public double UnitPrice { get; set; }
+        public double DiscountPercent { get; set; }
+        public double VatPercent { get; set; }
+        public double TotalAmount => Quantity * UnitPrice * (1 - DiscountPercent / 100.0) * (1 + VatPercent / 100.0);
+    }
+
+    // Dokunmatik Kasa & Hızlı Buton Paneli
+    protected Panel? _pnlTouch;
+    protected FlowLayoutPanel? _flowTouchButtons;
+    private KryptonTextBox? _txtTouchFilter;
+    private DataTable? _cachedProductsTable;
+    private Label? _lblBulkTotal;
 
     public QuickSaleDialog(string initialOperation = "Satış", long? initialProductId = null) 
-        : base(initialOperation == "Satış" ? "⚡ Hızlı Satış / Fiş Kesme" : "📥 Hızlı Alış / Fatura Girişi", 880, 840)
+        : base(initialOperation == "Satış" ? "⚡ Hızlı Satış / POS Dokunmatik Kasa" : "📥 Hızlı Alış / Fatura Girişi", 1240, 840)
     {
         _cmbOperation.Items.AddRange(new object[] { "Satış", "Alış" });
         _cmbOperation.SelectedItem = initialOperation;
@@ -97,7 +125,7 @@ ORDER BY Display");
             ProductSelectionChanged(null, EventArgs.Empty);
         };
 
-        // Ürünler (Code ve Barcode alanları dahil)
+        // Ürünler (Code, Barcode, Category ve IsFastSale alanları dahil)
         var dtProducts = Database.Query(@"
 SELECT 
     p.Id, 
@@ -105,17 +133,20 @@ SELECT
     COALESCE(p.Barcode, '') AS Barcode,
     p.Code + ' - ' + p.Name AS Display, 
     p.Name,
+    p.Category,
     p.PurchasePrice, 
     p.SalePrice,
     COALESCE(p.WholesalePrice, 0) AS WholesalePrice,
     COALESCE(p.SpecialPrice, 0) AS SpecialPrice,
     p.VatPercent,
     p.DiscountPercent,
+    COALESCE(p.IsFastSale, 0) AS IsFastSale,
     (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) AS CurrentStock,
     p.Unit
 FROM Products p 
 WHERE p.IsActive = 1 
 ORDER BY p.Name");
+        _cachedProductsTable = dtProducts;
         _cmbProduct.DataSource = dtProducts;
         _cmbProduct.DisplayMember = "Display";
         _cmbProduct.ValueMember = "Id";
@@ -243,6 +274,8 @@ ORDER BY p.Name");
         BtnSave.Click += SaveClick;
 
         BuildExtraToolbarButtons();
+        BuildTouchButtonsPanel(dtProducts);
+        UpdateOperationUi();
 
         if (dtProducts.Rows.Count > 0)
         {
@@ -283,12 +316,17 @@ ORDER BY p.Name");
             _btnOpenParked.Margin = new Padding(0, 0, 6, 0);
             flowLeft.Controls.Add(_btnOpenParked);
 
-            // 3. WhatsApp Fişi Butonu
+            // 3. FAST / Karekod IBAN ile Ödeme Butonu
+            var btnFastQr = UITheme.CreateKryptonButton("⚡ FAST QR", Color.FromArgb(124, 58, 237), Color.White, (s, e) => OpenFastQrPayment(), 115, 36);
+            btnFastQr.Margin = new Padding(0, 0, 6, 0);
+            flowLeft.Controls.Add(btnFastQr);
+
+            // 4. WhatsApp Fişi Butonu
             var btnWa = UITheme.CreateKryptonButton("📲 WhatsApp", Color.FromArgb(16, 185, 129), Color.White, (s, e) => SendWhatsAppReceiptClick(), 110, 36);
             btnWa.Margin = new Padding(0, 0, 6, 0);
             flowLeft.Controls.Add(btnWa);
 
-            // 4. Çift Ekran / Müşteri Bilgi Ekranı Butonu
+            // 5. Çift Ekran / Müşteri Bilgi Ekranı Butonu
             var btnDisplay = UITheme.CreateKryptonButton("📺 Müşteri Ekranı", Color.FromArgb(14, 165, 233), Color.White, (s, e) =>
             {
                 var curUser = UserService.CurrentUser;
@@ -303,7 +341,7 @@ ORDER BY p.Name");
             btnDisplay.Margin = new Padding(0, 0, 6, 0);
             flowLeft.Controls.Add(btnDisplay);
 
-            // 5. Termal Fiş Yazdır Butonu
+            // 6. Termal Fiş Yazdır Butonu
             var btnThermal = UITheme.CreateKryptonButton("🖨️ Fiş Yazdır", Color.FromArgb(71, 85, 105), Color.White, (s, e) => PrintThermalReceiptClick(), 115, 36);
             btnThermal.Margin = new Padding(0, 0, 6, 0);
             flowLeft.Controls.Add(btnThermal);
@@ -340,6 +378,15 @@ ORDER BY p.Name");
             return;
         }
 
+        string defaultTag = "Masa " + (ParkedSalesService.Count + 1);
+        string enteredTag = PromptDialog.Show(
+            "Askıya alınan bu satış için Masa No, Araç Plakası veya Müşteri Adı giriniz:\n(Örn: Masa 4, 34 ABC 123, Paket Servis, Ahmet Bey)",
+            "Sepeti Askıya Al (İsim / Masa / Plaka)",
+            defaultTag
+        );
+
+        string finalTag = string.IsNullOrWhiteSpace(enteredTag) ? defaultTag : enteredTag.Trim();
+
         string prodName = (_cmbProduct.SelectedItem is DataRowView rv) ? rv["Display"]?.ToString() ?? "" : "";
         string accName = (_cmbAccount.SelectedItem is DataRowView av) ? av["Display"]?.ToString() ?? "(Perakende)" : "(Perakende)";
 
@@ -361,13 +408,14 @@ ORDER BY p.Name");
             Note = _cmbNote.Text.Trim(),
             DueDate = _chkHasDueDate.Checked ? _dtpDueDate.Value.ToString("yyyy-MM-dd") : null,
             VariantId = _cmbVariant.SelectedValue is long vid && vid > 0 ? vid : null,
-            VariantName = _cmbVariant.Text
+            VariantName = _cmbVariant.Text,
+            CustomTag = finalTag
         };
 
         ParkedSalesService.Park(parked);
         UpdateParkedButtonBadge();
 
-        MessageBox.Show($"Sepet askıya alındı!\n\nArkadaki müşterinin satışına devam edebilirsiniz. Bekleyen fişe '📂 Bekleyen Fişler' butonundan istediğiniz zaman tek tıkla geri dönebilirsiniz.", "Sepet Askıya Alındı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        MessageBox.Show($"Sepet [{finalTag}] etiketiyle askıya alındı!\n\nArkadaki müşterinin satışına devam edebilirsiniz. Bekleyen fişe '📂 Bekleyen Fişler' butonundan dilediğiniz an geri dönebilirsiniz.", "Sepet Askıya Alındı", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
         // Formu yeni müşteri için sıfırla
         _txtQty.Text = "1";
@@ -375,6 +423,462 @@ ORDER BY p.Name");
         _txtDocNo.Text = (_cmbOperation.Text == "Satış" ? "SAT-" : "ALS-") + DateTime.Now.ToString("yyyyMMdd-HHmm");
         _cmbAccount.SelectedIndex = 0;
         _txtBarcodeScan.Focus();
+    }
+
+    private void OpenFastQrPayment()
+    {
+        double currentTotal = ParseNumber(_lblNetTotal.Text);
+        if (currentTotal <= 0)
+        {
+            MessageBox.Show("FAST / QR Kod ile ödeme alabilmek için önce geçerli bir ürün ve tutar giriniz.", "Tutar Geçersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        string docNo = _txtDocNo.Text.Trim();
+        using var dlg = new FastQrPaymentDialog(currentTotal, docNo);
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+        {
+            _cmbPayment.Text = "Havale / EFT";
+            string qrNote = $"[⚡ FAST QR Ödeme - {currentTotal:N2} ₺]";
+            if (string.IsNullOrWhiteSpace(_cmbNote.Text))
+            {
+                _cmbNote.Text = qrNote;
+            }
+            else if (!_cmbNote.Text.Contains("FAST QR"))
+            {
+                _cmbNote.Text += " " + qrNote;
+            }
+
+            var ask = MessageBox.Show(
+                $"Karekod ile {currentTotal:N2} ₺ tutarındaki ödeme hesaba teyit edildi!\n\nSatışı şimdi kaydetmek istiyor musunuz?",
+                "Ödeme Onaylandı",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question
+            );
+
+            if (ask == DialogResult.Yes)
+            {
+                SaveClick(null, EventArgs.Empty);
+            }
+        }
+    }
+
+    private void BuildTouchButtonsPanel(DataTable dtProducts)
+    {
+        _pnlTouch = new Panel
+        {
+            Dock = DockStyle.Right,
+            Width = 330,
+            BackColor = Color.FromArgb(248, 250, 252),
+            Padding = new Padding(12)
+        };
+
+        // Üst Başlık & Yönetim Barı
+        var pnlHeader = new Panel { Dock = DockStyle.Top, Height = 75, BackColor = Color.Transparent };
+
+        var pnlSearchRow = new Panel { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(0, 4, 0, 0) };
+
+        _txtTouchFilter = new KryptonTextBox
+        {
+            Dock = DockStyle.Fill,
+            CueHint = { CueHintText = "🔍 Butonlarda ara..." },
+            Font = new Font("Segoe UI", 9.5f)
+        };
+        _txtTouchFilter.TextChanged += (s, e) => LoadTouchButtons(_txtTouchFilter.Text.Trim());
+
+        var btnManage = UITheme.CreateKryptonButton("⚙️ Düzenle", Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85), (s, e) => OpenManageFastSaleProducts(), 85, 32);
+        btnManage.Dock = DockStyle.Right;
+        btnManage.Margin = new Padding(6, 0, 0, 0);
+
+        pnlSearchRow.Controls.Add(_txtTouchFilter);
+        pnlSearchRow.Controls.Add(btnManage);
+
+        pnlHeader.Controls.Add(_lblTouchTitle);
+        pnlHeader.Controls.Add(pnlSearchRow);
+
+        _flowTouchButtons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            Padding = new Padding(0, 10, 0, 0),
+            BackColor = Color.Transparent
+        };
+
+        _gridBulkSale = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            AutoGenerateColumns = false,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            ReadOnly = true,
+            RowHeadersVisible = false,
+            MultiSelect = false,
+            BackgroundColor = Color.White,
+            BorderStyle = BorderStyle.None,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect
+        };
+        _gridBulkSale.Columns.Add(new DataGridViewTextBoxColumn { Name = "Name", HeaderText = "Ürün", DataPropertyName = "Name", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, MinimumWidth = 90 });
+        _gridBulkSale.Columns.Add(new DataGridViewTextBoxColumn { Name = "Qty", HeaderText = "Adet", DataPropertyName = "Qty", Width = 48 });
+        _gridBulkSale.Columns.Add(new DataGridViewTextBoxColumn { Name = "UnitPrice", HeaderText = "Birim", DataPropertyName = "UnitPrice", Width = 68 });
+        _gridBulkSale.Columns.Add(new DataGridViewTextBoxColumn { Name = "Total", HeaderText = "Toplam", DataPropertyName = "Total", Width = 75 });
+
+        var btnAddToBulk = UITheme.CreateKryptonButton("➕ Seçilenleri Ekle", Color.FromArgb(37, 99, 235), Color.White, (s, e) => AddCurrentProductToBulk(), 120, 30);
+        var btnClearBulk = UITheme.CreateKryptonButton("🗑️ Temizle", Color.FromArgb(148, 163, 184), Color.White, (s, e) => ClearBulkSelection(), 90, 30);
+        btnAddToBulk.Dock = DockStyle.Left;
+        btnClearBulk.Dock = DockStyle.Right;
+
+        _lblBulkTotal = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 26,
+            Text = "Sepet Toplamı: 0,00 ₺",
+            TextAlign = ContentAlignment.MiddleRight,
+            Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+            ForeColor = UITheme.TextPrimary
+        };
+        var pnlBulkActions = new Panel { Dock = DockStyle.Bottom, Height = 36, Padding = new Padding(0, 4, 0, 0) };
+        pnlBulkActions.Controls.Add(btnAddToBulk);
+        pnlBulkActions.Controls.Add(btnClearBulk);
+        var pnlBulkFooter = new Panel { Dock = DockStyle.Bottom, Height = 62 };
+        pnlBulkFooter.Controls.Add(_lblBulkTotal);
+        pnlBulkFooter.Controls.Add(pnlBulkActions);
+        var pnlBulkCart = new Panel { Dock = DockStyle.Bottom, Height = 150 };
+        pnlBulkCart.Controls.Add(_gridBulkSale);
+        pnlBulkCart.Controls.Add(pnlBulkFooter);
+
+        _pnlTouch.Controls.Add(_flowTouchButtons);
+        _pnlTouch.Controls.Add(pnlHeader);
+        _pnlTouch.Controls.Add(pnlBulkCart);
+        pnlBulkCart.BringToFront();
+
+        Controls.Add(_pnlTouch);
+        _pnlTouch.BringToFront();
+
+        RefreshBulkGrid();
+
+        LoadTouchButtons();
+    }
+
+    private void AddCurrentProductToBulk()
+    {
+        if (_cmbProduct.SelectedValue == null)
+        {
+            return;
+        }
+
+        long productId = Convert.ToInt64(_cmbProduct.SelectedValue);
+        string displayName = (_cmbProduct.SelectedItem is DataRowView row) ? (row["Name"]?.ToString() ?? "Ürün") : "Ürün";
+        double qty = ParseNumber(_txtQty.Text);
+        if (qty <= 0) return;
+
+        double unitPrice = ParseNumber(_txtUnitPrice.Text);
+        double discountPct = ParseNumber(_txtDiscount.Text);
+        double vatPct = ParseNumber(_txtVat.Text);
+        var existing = _bulkSaleLines.FirstOrDefault(x => x.ProductId == productId);
+        if (existing != null)
+        {
+            existing.Quantity += qty;
+            existing.UnitPrice = unitPrice;
+            existing.DiscountPercent = discountPct;
+            existing.VatPercent = vatPct;
+        }
+        else
+        {
+            _bulkSaleLines.Add(new BulkSaleLine
+            {
+                ProductId = productId,
+                Name = displayName,
+                Quantity = qty,
+                UnitPrice = unitPrice,
+                DiscountPercent = discountPct,
+                VatPercent = vatPct
+            });
+        }
+
+        RefreshBulkGrid();
+    }
+
+    private void ClearBulkSelection()
+    {
+        _bulkSaleLines.Clear();
+        RefreshBulkGrid();
+    }
+
+    private void RefreshBulkGrid()
+    {
+        if (_gridBulkSale == null) return;
+
+        var rows = _bulkSaleLines.Select(x => new
+        {
+            Name = x.Name,
+            Qty = x.Quantity.ToString("N2"),
+            UnitPrice = x.UnitPrice.ToString("N2"),
+            Total = x.TotalAmount.ToString("N2") + " ₺"
+        }).ToList();
+
+        _gridBulkSale.DataSource = rows.Count > 0 ? rows : null;
+        if (_lblBulkTotal != null)
+        {
+            double grandTotal = _bulkSaleLines.Sum(x => x.TotalAmount);
+            _lblBulkTotal.Text = $"Sepet Toplamı: {grandTotal:N2} ₺";
+        }
+    }
+
+    private void SaveBulkQueuedItems()
+    {
+        if (_bulkSaleLines.Count == 0)
+        {
+            return;
+        }
+
+        long accountId = Convert.ToInt64(_cmbAccount.SelectedValue ?? 0);
+        string paymentMethod = _cmbPayment.Text;
+
+        if (accountId == 0 && paymentMethod == "Veresiye (Açık Hesap)")
+        {
+            MessageBox.Show("Toplu satışta veresiye işlemi için geçerli bir müşteri seçiniz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        double grandTotal = _bulkSaleLines.Sum(x => x.TotalAmount);
+        if (paymentMethod == "💳 Parçalı / Çoklu Ödeme")
+        {
+            using var splitDialog = new SplitPaymentDialog(grandTotal, accountId > 0);
+            if (splitDialog.ShowDialog(this) != DialogResult.OK) return;
+            _splitCash = splitDialog.CashAmount;
+            _splitCard = splitDialog.CardAmount;
+            _splitTransfer = splitDialog.TransferAmount;
+            _splitCredit = splitDialog.CreditAmount;
+            _isSplitConfigured = true;
+        }
+
+        var lines = _bulkSaleLines.Select(x => (x.ProductId, x.Quantity, x.UnitPrice, x.TotalAmount)).ToList();
+        try
+        {
+            TransactionService.ProcessIntegratedSaleOrPurchaseBatch(
+                _dtpDate.Value,
+                accountId,
+                _cmbOperation.Text,
+                lines,
+                paymentMethod,
+                _txtDocNo.Text.Trim(),
+                _cmbNote.Text.Trim(),
+                _chkHasDueDate.Checked ? _dtpDueDate.Value.ToString("yyyy-MM-dd") : null,
+                _cmbWarehouse.SelectedValue != null ? Convert.ToInt64(_cmbWarehouse.SelectedValue) : 1,
+                _splitCash,
+                _splitCard,
+                _splitTransfer,
+                _splitCredit
+            );
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Toplu satış kaydedilemedi; sepet işleminde hata oluştu: {ex.Message}", "İşlem Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        _bulkSaleLines.Clear();
+        RefreshBulkGrid();
+        MessageBox.Show($"Toplam {lines.Count} ürün satırı kaydedildi. Sepet toplamı: {grandTotal:N2} ₺", "İşlem Tamamlandı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        DialogResult = DialogResult.OK;
+        Close();
+    }
+
+    private void LoadTouchButtons(string filter = "")
+    {
+        if (_flowTouchButtons == null || _cachedProductsTable == null) return;
+        _flowTouchButtons.SuspendLayout();
+        _flowTouchButtons.Controls.Clear();
+
+        IEnumerable<DataRow> rows = _cachedProductsTable.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            string f = filter.ToLowerInvariant();
+            rows = rows.Where(r => (r.Field<string>("Name") ?? "").ToLowerInvariant().Contains(f) ||
+                                  (r.Field<string>("Barcode") ?? "").ToLowerInvariant().Contains(f) ||
+                                  (r.Field<string>("Category") ?? "").ToLowerInvariant().Contains(f));
+        }
+        else
+        {
+            // Filtre yoksa: Önce IsFastSale=1 olanları, eğer hiç yoksa ilk 24 popüler ürünü göster
+            var fastOnly = rows.Where(r => Convert.ToInt32(r["IsFastSale"]) == 1).ToList();
+            if (fastOnly.Count > 0)
+            {
+                rows = fastOnly;
+            }
+            else
+            {
+                rows = rows.Take(24).ToList();
+            }
+        }
+
+        // Dokunmatik renk paleti (Modern, pastel & canlı)
+        Color[] cardColors = new[]
+        {
+            Color.FromArgb(224, 242, 254), // Mavi
+            Color.FromArgb(220, 252, 231), // Yeşil
+            Color.FromArgb(254, 249, 195), // Sarı
+            Color.FromArgb(243, 232, 255), // Mor
+            Color.FromArgb(255, 237, 213), // Turuncu
+            Color.FromArgb(252, 231, 243), // Pembe
+            Color.FromArgb(204, 251, 241), // Teal
+            Color.FromArgb(254, 226, 226)  // Kırmızımsı
+        };
+
+        Color[] textColors = new[]
+        {
+            Color.FromArgb(3, 105, 161),
+            Color.FromArgb(21, 128, 61),
+            Color.FromArgb(161, 98, 7),
+            Color.FromArgb(126, 34, 206),
+            Color.FromArgb(194, 65, 12),
+            Color.FromArgb(190, 24, 93),
+            Color.FromArgb(15, 118, 110),
+            Color.FromArgb(185, 28, 28)
+        };
+
+        int colorIdx = 0;
+        foreach (var r in rows)
+        {
+            long pId = Convert.ToInt64(r["Id"]);
+            string pName = r["Name"]?.ToString() ?? "Ürün";
+            double pPrice = Convert.ToDouble(r["SalePrice"]);
+
+            var btnCard = new Button
+            {
+                Width = 110,
+                Height = 82,
+                Margin = new Padding(4),
+                BackColor = cardColors[colorIdx % cardColors.Length],
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                ForeColor = textColors[colorIdx % textColors.Length],
+                TextAlign = ContentAlignment.TopCenter,
+                Text = $"{pName}\n\n{pPrice:N2} ₺"
+            };
+            btnCard.FlatAppearance.BorderSize = 1;
+            btnCard.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+
+            btnCard.Click += (s, e) =>
+            {
+                _cmbProduct.SelectedValue = pId;
+                _txtQty.Text = "1";
+                AddCurrentProductToBulk();
+                CalculateTotal(null, EventArgs.Empty);
+            };
+
+            _flowTouchButtons.Controls.Add(btnCard);
+            colorIdx++;
+        }
+
+        if (_flowTouchButtons.Controls.Count == 0)
+        {
+            var lblEmpty = new Label
+            {
+                Text = "Aranan kritere uygun hızlı ürün bulunamadı.\n'⚙️ Düzenle' butonu ile hızlı ürünler seçebilirsiniz.",
+                ForeColor = UITheme.TextMuted,
+                Font = UITheme.SmallFont,
+                AutoSize = true,
+                Padding = new Padding(10)
+            };
+            _flowTouchButtons.Controls.Add(lblEmpty);
+        }
+
+        _flowTouchButtons.ResumeLayout();
+    }
+
+    private void OpenManageFastSaleProducts()
+    {
+        using var form = new Form
+        {
+            Text = "⭐ Hızlı Satış Butonlarını Yönet",
+            Width = 520,
+            Height = 600,
+            StartPosition = FormStartPosition.CenterParent,
+            BackColor = UITheme.Background,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false
+        };
+
+        var lblInfo = new Label
+        {
+            Text = "Dokunmatik hızlı satış ekranında yer almasını istediğiniz ürünleri işaretleyin:",
+            Dock = DockStyle.Top,
+            Height = 40,
+            Padding = new Padding(12, 10, 12, 0),
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Regular)
+        };
+
+        var chkList = new CheckedListBox
+        {
+            Dock = DockStyle.Fill,
+            Font = new Font("Segoe UI", 10f),
+            CheckOnClick = true
+        };
+
+        var dt = Database.Query("SELECT Id, Name, SalePrice, COALESCE(IsFastSale, 0) AS IsFastSale FROM Products WHERE IsActive=1 ORDER BY Name");
+        var idList = new List<long>();
+
+        for (int i = 0; i < dt.Rows.Count; i++)
+        {
+            var row = dt.Rows[i];
+            long id = Convert.ToInt64(row["Id"]);
+            idList.Add(id);
+            string name = $"{row["Name"]} ({Convert.ToDouble(row["SalePrice"]):N2} ₺)";
+            chkList.Items.Add(name, Convert.ToInt32(row["IsFastSale"]) == 1);
+        }
+
+        var pnlBottom = new Panel { Dock = DockStyle.Bottom, Height = 55, Padding = new Padding(12) };
+        var btnSave = UITheme.CreateButton("Kaydet", UITheme.Primary, Color.White, (s, e) =>
+        {
+            for (int i = 0; i < chkList.Items.Count; i++)
+            {
+                bool isChecked = chkList.GetItemChecked(i);
+                long id = idList[i];
+                Database.Execute("UPDATE Products SET IsFastSale=@p WHERE Id=@id", ("@p", isChecked ? 1 : 0), ("@id", id));
+            }
+
+            MessageBox.Show("Hızlı satış butonları güncellendi!", "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            form.DialogResult = DialogResult.OK;
+            form.Close();
+        }, 110, 34);
+        btnSave.Dock = DockStyle.Right;
+
+        pnlBottom.Controls.Add(btnSave);
+        form.Controls.Add(chkList);
+        form.Controls.Add(lblInfo);
+        form.Controls.Add(pnlBottom);
+
+        if (form.ShowDialog(this) == DialogResult.OK)
+        {
+            // Ürün tablosunu tazele
+            _cachedProductsTable = Database.Query(@"
+SELECT 
+    p.Id, 
+    p.Code,
+    COALESCE(p.Barcode, '') AS Barcode,
+    p.Code + ' - ' + p.Name AS Display, 
+    p.Name,
+    p.Category,
+    p.PurchasePrice, 
+    p.SalePrice,
+    COALESCE(p.WholesalePrice, 0) AS WholesalePrice,
+    COALESCE(p.SpecialPrice, 0) AS SpecialPrice,
+    p.VatPercent,
+    p.DiscountPercent,
+    COALESCE(p.IsFastSale, 0) AS IsFastSale,
+    (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) AS CurrentStock,
+    p.Unit
+FROM Products p 
+WHERE p.IsActive = 1 
+ORDER BY p.Name");
+            LoadTouchButtons();
+        }
     }
 
     private void OpenParkedSalesDialog()
@@ -563,7 +1067,47 @@ ORDER BY p.Name");
 
     private void OperationChanged(object? sender, EventArgs e)
     {
+        UpdateOperationUi();
         ProductSelectionChanged(null, EventArgs.Empty);
+    }
+
+    protected virtual bool IsSaleMode => _cmbOperation.Text == "Satış";
+
+    protected virtual void ApplyOperationTheme()
+    {
+        bool isSale = IsSaleMode;
+        this.BackColor = isSale ? UITheme.Background : Color.FromArgb(240, 253, 244);
+        BtnSave.StateCommon.Back.Color1 = isSale ? UITheme.Primary : Color.FromArgb(5, 150, 105);
+        BtnSave.StateCommon.Back.Color2 = isSale ? UITheme.Primary : Color.FromArgb(16, 185, 129);
+        BtnSave.StateCommon.Content.ShortText.Color1 = Color.White;
+        _lblTouchTitle.ForeColor = isSale ? Color.FromArgb(30, 41, 59) : Color.FromArgb(22, 101, 52);
+        if (_pnlTouch != null)
+        {
+            _pnlTouch.BackColor = isSale ? Color.FromArgb(248, 250, 252) : Color.FromArgb(240, 253, 244);
+        }
+        if (_flowTouchButtons != null)
+        {
+            _flowTouchButtons.BackColor = isSale ? Color.FromArgb(248, 250, 252) : Color.FromArgb(240, 253, 244);
+        }
+    }
+
+    protected virtual void UpdateOperationUi()
+    {
+        bool isSale = IsSaleMode;
+
+        Text = isSale ? "⚡ Hızlı Satış / POS Dokunmatik Kasa" : "📥 Hızlı Alış / Fatura Girişi";
+        BtnSave.Text = isSale ? "⚡ Satışı Onayla" : "📥 Alışı Onayla";
+        _lblTouchTitle.Text = isSale ? "⚡ Hızlı Satış Butonları (POS)" : "📦 Hızlı Alış Butonları (Stok Girişi)";
+        _txtBarcodeScan.CueHint.CueHintText = isSale
+            ? "Barkod okutun veya yazıp Enter'a basın (F2)..."
+            : "Alınacak ürün barkodunu okutun veya yazıp Enter'a basın...";
+        _txtProductFilter.CueHint.CueHintText = isSale
+            ? "🔍 Ürün Adı, Barkod veya Stok Kodu yazarak hızlı satış yapın..."
+            : "🔍 Alınacak ürün adı, barkod veya stok kodu ile hızlı arama yapın...";
+        _lblBarcodeInfo.Text = isSale
+            ? "💡 Normal barkod, terazi veya renk/beden varyant barkodları otomatik algılanır."
+            : "💡 Alış işleminde ürün barkodu, stok hareketleri ve depo takibi otomatik güncellenir.";
+        ApplyOperationTheme();
     }
 
     private void ProductSelectionChanged(object? sender, EventArgs e)
@@ -674,6 +1218,12 @@ ORDER BY p.Name");
 
     private void SaveClick(object? sender, EventArgs e)
     {
+        if (_bulkSaleLines.Count > 0)
+        {
+            SaveBulkQueuedItems();
+            return;
+        }
+
         if (_cmbProduct.SelectedValue == null || ParseNumber(_txtQty.Text) <= 0)
         {
             MessageBox.Show("Lütfen geçerli bir ürün ve miktar seçiniz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -772,9 +1322,12 @@ ORDER BY p.Name");
                 );
             }
 
+            bool isSale = _cmbOperation.Text == "Satış";
             var promptWa = MessageBox.Show(
-                "İşlem başarıyla kaydedildi! Stok ve Kasa hareketleri güncellendi.\n\nMüşteriye WhatsApp ile Dijital Fiş göndermek ister misiniz?",
-                "Satış Tamamlandı",
+                isSale
+                    ? "İşlem başarıyla kaydedildi! Stok ve Kasa hareketleri güncellendi.\n\nMüşteriye WhatsApp ile Dijital Fiş göndermek ister misiniz?"
+                    : "Alış işlemi başarıyla kaydedildi! Stok ve Kasa hareketleri güncellendi.\n\nTedarikçiye veya giriş dekontuna WhatsApp ile bilgi göndermek ister misiniz?",
+                isSale ? "Satış Tamamlandı" : "Alış Kaydedildi",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question
             );

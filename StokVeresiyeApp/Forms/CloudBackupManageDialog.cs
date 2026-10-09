@@ -234,8 +234,9 @@ public class CloudBackupManageDialog : KryptonForm
         Controls.Add(bottomPanel);
         Controls.Add(headerPanel);
 
-        headerPanel.SendToBack();
-        bottomPanel.SendToBack();
+        Controls.SetChildIndex(headerPanel, 0);
+        Controls.SetChildIndex(bottomPanel, 1);
+        Controls.SetChildIndex(centerPanel, 2);
         centerPanel.BringToFront();
     }
 

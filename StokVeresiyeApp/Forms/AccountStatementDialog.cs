@@ -93,6 +93,7 @@ public class AccountStatementDialog : Form
         Controls.Add(gridPanel);
         Controls.Add(bottomPanel);
         Controls.Add(topPanel);
+        gridPanel.BringToFront();
         topPanel.SendToBack();
         bottomPanel.SendToBack();
     }

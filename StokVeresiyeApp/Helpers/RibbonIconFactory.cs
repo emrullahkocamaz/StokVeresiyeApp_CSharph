@@ -92,9 +92,6 @@ public static class RibbonIconFactory
             case "notification":
                 DrawNotification(g, size, s);
                 break;
-            case "telegram":
-                DrawTelegram(g, size, s);
-                break;
             case "mobilescanner":
                 DrawMobileScanner(g, size, s);
                 break;
@@ -133,6 +130,12 @@ public static class RibbonIconFactory
                 break;
             case "refresh":
                 DrawRefresh(g, size, s);
+                break;
+            case "whatsapp":
+                DrawWhatsApp(g, size, s);
+                break;
+            case "batchinvoices":
+                DrawBatchInvoices(g, size, s);
                 break;
             default:
                 DrawGeneric(g, size, s);
@@ -491,19 +494,6 @@ public static class RibbonIconFactory
         g.FillEllipse(bClapper, 13 * s, 23 * s, 6 * s, 5 * s);
     }
 
-    private static void DrawTelegram(Graphics g, int sz, float s)
-    {
-        // Mavi Daire
-        using var bBlue = new SolidBrush(Color.FromArgb(14, 165, 233));
-        g.FillEllipse(bBlue, 3 * s, 3 * s, 26 * s, 26 * s);
-
-        // Kağıt Uçak
-        using var bPlane = new SolidBrush(Color.White);
-        g.FillPolygon(bPlane, new PointF[] {
-            new(7 * s, 16 * s), new(25 * s, 8 * s), new(19 * s, 24 * s), new(15 * s, 18 * s)
-        });
-    }
-
     private static void DrawMobileScanner(Graphics g, int sz, float s)
     {
         // Akıllı Telefon
@@ -699,5 +689,60 @@ public static class RibbonIconFactory
     {
         using var b = new SolidBrush(Color.FromArgb(59, 130, 246));
         g.FillEllipse(b, 6 * s, 6 * s, 20 * s, 20 * s);
+    }
+
+    private static void DrawWhatsApp(Graphics g, int sz, float s)
+    {
+        // WhatsApp Yeşili Dairesel Balon
+        using var bGreen = new SolidBrush(Color.FromArgb(37, 211, 102));
+        g.FillEllipse(bGreen, 3 * s, 3 * s, 26 * s, 26 * s);
+
+        // Konuşma kuyruğu
+        var pts = new PointF[]
+        {
+            new PointF(6 * s, 22 * s),
+            new PointF(4 * s, 27 * s),
+            new PointF(10 * s, 25 * s)
+        };
+        g.FillPolygon(bGreen, pts);
+
+        // Beyaz Telefon / Mesaj Simgesi
+        using var penW = new Pen(Color.White, 2.2f * s)
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round
+        };
+        g.DrawArc(penW, 10 * s, 10 * s, 12 * s, 12 * s, -30, 180);
+        g.DrawLine(penW, 10 * s, 16 * s, 13 * s, 19 * s);
+        g.DrawLine(penW, 18 * s, 11 * s, 21 * s, 14 * s);
+    }
+
+    private static void DrawBatchInvoices(Graphics g, int sz, float s)
+    {
+        // Çoklu Belge Yığını (Toplu PDF)
+        // 1. Arka Belge (Gri/Açık Mavi)
+        using var bBack = new SolidBrush(Color.FromArgb(203, 213, 225));
+        g.FillRectangle(bBack, 3 * s, 3 * s, 18 * s, 22 * s);
+        using var pBack = new Pen(Color.FromArgb(148, 163, 184), 1.2f * s);
+        g.DrawRectangle(pBack, 3 * s, 3 * s, 18 * s, 22 * s);
+
+        // 2. Orta Belge (Teal)
+        using var bMid = new SolidBrush(Color.FromArgb(241, 245, 249));
+        g.FillRectangle(bMid, 7 * s, 6 * s, 18 * s, 22 * s);
+        using var pMid = new Pen(Color.FromArgb(14, 116, 144), 1.4f * s);
+        g.DrawRectangle(pMid, 7 * s, 6 * s, 18 * s, 22 * s);
+
+        // Belge çizgileri
+        using var pLine = new Pen(Color.FromArgb(56, 189, 248), 1.2f * s);
+        g.DrawLine(pLine, 10 * s, 11 * s, 21 * s, 11 * s);
+        g.DrawLine(pLine, 10 * s, 15 * s, 21 * s, 15 * s);
+        g.DrawLine(pLine, 10 * s, 19 * s, 18 * s, 19 * s);
+
+        // PDF Kırmızı Rozeti
+        using var bBadge = new SolidBrush(Color.FromArgb(220, 38, 38));
+        g.FillEllipse(bBadge, 17 * s, 17 * s, 13 * s, 13 * s);
+        using var pPlus = new Pen(Color.White, 2f * s);
+        g.DrawLine(pPlus, 23.5f * s, 20 * s, 23.5f * s, 27 * s);
+        g.DrawLine(pPlus, 20 * s, 23.5f * s, 27 * s, 23.5f * s);
     }
 }

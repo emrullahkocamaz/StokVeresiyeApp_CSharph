@@ -15,6 +15,7 @@ public class MainForm : KryptonForm
     // Ribbon & Navigasyon
     private readonly KryptonRibbon _ribbon = new();
     private readonly Panel _contentArea = new();
+    private readonly TableLayoutPanel _shellLayout = new();
     private readonly StatusStrip _statusStrip = new();
     private readonly ToolStripStatusLabel _statusUser = new();
     private readonly ToolStripStatusLabel _statusLicense = new();
@@ -23,6 +24,37 @@ public class MainForm : KryptonForm
     private KryptonRibbonGroupButton? _ribbonBtnNotify;
     private int _currentNavIndex = 0;
     public bool IsLoggedOut { get; private set; } = false;
+
+    // Modern SaaS Sol Sidebar & Üst Header Kontrolleri
+    private readonly Panel _pnlSidebar = new();
+    private readonly FlowLayoutPanel _pnlNavButtons = new();
+    private readonly Panel _pnlTopHeader = new();
+    private readonly Label _lblPageTitle = new();
+    private readonly Label _lblPageSubTitle = new();
+    private readonly TextBox _txtGlobalSearch = new();
+    private readonly Panel _pnlGlobalResults = new();
+    private readonly ListBox _lstGlobalResults = new();
+    private readonly Button _btnHeaderNotify = new();
+    private readonly Button _btnSidebarToggle = new();
+    private readonly Label _lblSidebarBrand = new();
+    private readonly Label _lblSidebarBadge = new();
+    private bool _isSidebarCollapsed = false;
+
+    // Sidebar Navigasyon Butonları
+    private SidebarNavButton _btnNavDash = new();
+    private SidebarNavButton _btnNavQuickSale = new();
+    private SidebarNavButton _btnNavProducts = new();
+    private SidebarNavButton _btnNavAccounts = new();
+    private SidebarNavButton _btnNavInvoices = new();
+    private SidebarNavButton _btnNavStockMov = new();
+    private SidebarNavButton _btnNavFinance = new();
+    private SidebarNavButton _btnNavBatchInv = new();
+    private SidebarNavButton _btnNavWhatsApp = new();
+    private SidebarNavButton _btnNavAudit = new();
+    private SidebarNavButton _btnNavUsers = new();
+    private SidebarNavButton _btnNavSettings = new();
+    private SidebarNavButton _btnNavLicense = new();
+    private readonly List<SidebarNavButton> _allNavButtons = new();
 
     // Sayfa Panelleri
     private Panel _pnlDashboard = new();
@@ -122,6 +154,7 @@ public class MainForm : KryptonForm
         Height = 850;
         MinimumSize = new Size(1100, 700);
         StartPosition = FormStartPosition.CenterScreen;
+        WindowState = FormWindowState.Maximized;
         BackColor = UITheme.Background;
         Font = UITheme.RegularFont;
         Icon = AppResources.AppIcon;
@@ -138,6 +171,17 @@ public class MainForm : KryptonForm
             if (e.Control && e.Shift && e.KeyCode == Keys.S)
             {
                 OpenSuperUserKeygen();
+            }
+            else if (e.Control && e.KeyCode == Keys.K)
+            {
+                _txtGlobalSearch.Focus();
+                _txtGlobalSearch.SelectAll();
+                e.Handled = true;
+            }
+            else if (e.KeyCode == Keys.Escape && _pnlGlobalResults.Visible)
+            {
+                _pnlGlobalResults.Visible = false;
+                e.Handled = true;
             }
             else if (e.KeyCode == Keys.F2)
             {
@@ -203,22 +247,53 @@ public class MainForm : KryptonForm
 
     private void BuildLayout()
     {
-        // 1. Ribbon Menüsü (En Üst)
+        // 1. Ribbon Menüsü (Arka planda hazır tutulur, dikey yer kaplamaması için formdan gizlenir)
         BuildRibbon();
-        Controls.Add(_ribbon);
-        _ribbon.BringToFront();
+        _ribbon.Visible = false;
 
-        // 2. Alt Durum Çubuğu (StatusStrip)
+        // 2. Ana Shell Düzeni: Sidebar / Header / Content tek kök çerçeve içinde çakışmaz
+        _shellLayout.Dock = DockStyle.Fill;
+        _shellLayout.ColumnCount = 2;
+        _shellLayout.RowCount = 2;
+        _shellLayout.Padding = new Padding(0);
+        _shellLayout.Margin = new Padding(0);
+        _shellLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210F));
+        _shellLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        _shellLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
+        _shellLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+
+        // 3. Sol Modern SaaS Sidebar (Koyu Slate #0F172A)
+        BuildSidebar();
+        _pnlSidebar.Dock = DockStyle.Fill;
+        _shellLayout.Controls.Add(_pnlSidebar, 0, 1);
+
+        // 4. Üst Modern SaaS Header (Beyaz #FFFFFF)
+        BuildTopHeader();
+        _pnlTopHeader.Dock = DockStyle.Fill;
+        _shellLayout.Controls.Add(_pnlTopHeader, 0, 0);
+        _shellLayout.SetColumnSpan(_pnlTopHeader, 2);
+
+        // 5. İçerik Alanı (Kalan tüm alan %100 Fill, sol sidebar ve üst header ile çakışmaz)
+        _contentArea.Dock = DockStyle.Fill;
+        _contentArea.BackColor = UITheme.Background;
+        _contentArea.Padding = new Padding(12);
+        _shellLayout.Controls.Add(_contentArea, 1, 1);
+
+        Controls.Add(_shellLayout);
+        _shellLayout.BringToFront();
+
+        _contentArea.AutoScroll = true;
+        _pnlDashboard.AutoScroll = true;
+
+        // 6. Alt Durum Çubuğu (StatusStrip)
         BuildStatusStrip();
         Controls.Add(_statusStrip);
         _statusStrip.BringToFront();
 
-        // 3. İçerik Alanı (Kalan tüm alan %100 Fill, z-order'da en arkada kalarak ribbon ve statusstrip ile asla çakışmaz)
-        _contentArea.Dock = DockStyle.Fill;
-        _contentArea.BackColor = UITheme.Background;
-        _contentArea.Padding = new Padding(12);
-        Controls.Add(_contentArea);
-        _contentArea.SendToBack();
+        // 7. Global Spotlight Arama Sonuç Paneli (Overlay)
+        BuildGlobalSearchPopup();
+        Controls.Add(_pnlGlobalResults);
+        _pnlGlobalResults.BringToFront();
 
         // Sayfaları İnşa Et
         BuildDashboardPage();
@@ -232,6 +307,541 @@ public class MainForm : KryptonForm
         BuildSettingsPage();
     }
 
+    private SidebarNavButton CreateNavBtn(string icon, string text, Action onClick)
+    {
+        var btn = new SidebarNavButton
+        {
+            Icon = icon,
+            Text = text,
+            Width = 220,
+            Height = 44,
+            Margin = new Padding(5, 2, 5, 2)
+        };
+        btn.Click += (s, e) => onClick();
+        _allNavButtons.Add(btn);
+        return btn;
+    }
+
+    private void BuildSidebar()
+    {
+        _pnlSidebar.Dock = DockStyle.Fill;
+        _pnlSidebar.Width = 210;
+        _pnlSidebar.BackColor = UITheme.SidebarBg;
+        _pnlSidebar.Padding = new Padding(0);
+
+        var sidebarLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3,
+            BackColor = Color.Transparent,
+            Padding = new Padding(0),
+            Margin = new Padding(0)
+        };
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58F));
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 72F));
+
+        var pnlLogo = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(15, 23, 42),
+            Padding = new Padding(12, 10, 12, 10)
+        };
+
+        var logoLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Padding = new Padding(0),
+            Margin = new Padding(0)
+        };
+        logoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        logoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 42F));
+        logoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 30F));
+
+        _lblSidebarBrand.Text = "BİLENSİS";
+        _lblSidebarBrand.Font = new Font("Segoe UI", 12f, FontStyle.Bold);
+        _lblSidebarBrand.ForeColor = Color.White;
+        _lblSidebarBrand.AutoSize = false;
+        _lblSidebarBrand.Dock = DockStyle.Fill;
+        _lblSidebarBrand.TextAlign = ContentAlignment.MiddleLeft;
+        _lblSidebarBrand.Cursor = Cursors.Hand;
+        _lblSidebarBrand.Margin = new Padding(0, 0, 6, 0);
+        _lblSidebarBrand.Click += (s, e) => ShowPage(0);
+
+        _lblSidebarBadge.Text = "v2.7";
+        _lblSidebarBadge.Font = new Font("Segoe UI", 7.5f, FontStyle.Bold);
+        _lblSidebarBadge.ForeColor = Color.White;
+        _lblSidebarBadge.BackColor = UITheme.Primary;
+        _lblSidebarBadge.AutoSize = false;
+        _lblSidebarBadge.Dock = DockStyle.Fill;
+        _lblSidebarBadge.TextAlign = ContentAlignment.MiddleCenter;
+        _lblSidebarBadge.Margin = new Padding(0);
+        _lblSidebarBadge.MaximumSize = new Size(42, 18);
+        _lblSidebarBadge.MinimumSize = new Size(38, 18);
+
+        _btnSidebarToggle.Text = "☰";
+        _btnSidebarToggle.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
+        _btnSidebarToggle.ForeColor = Color.FromArgb(148, 163, 184);
+        _btnSidebarToggle.BackColor = Color.Transparent;
+        _btnSidebarToggle.FlatStyle = FlatStyle.Flat;
+        _btnSidebarToggle.FlatAppearance.BorderSize = 0;
+        _btnSidebarToggle.Size = new Size(30, 30);
+        _btnSidebarToggle.Dock = DockStyle.Fill;
+        _btnSidebarToggle.Cursor = Cursors.Hand;
+        _btnSidebarToggle.Click += (s, e) => ToggleSidebar();
+
+        logoLayout.Controls.Add(_lblSidebarBrand, 0, 0);
+        logoLayout.Controls.Add(_lblSidebarBadge, 1, 0);
+        logoLayout.Controls.Add(_btnSidebarToggle, 2, 0);
+        pnlLogo.Controls.Add(logoLayout);
+
+        var pnlUserCard = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(11, 17, 32),
+            Padding = new Padding(10, 8, 10, 8)
+        };
+
+        var userLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 2,
+            BackColor = Color.Transparent,
+            Padding = new Padding(0),
+            Margin = new Padding(0)
+        };
+        userLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        userLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 32F));
+        userLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 55F));
+        userLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 45F));
+
+        var curUser = UserService.CurrentUser;
+        var lblUserName = new Label
+        {
+            Text = curUser?.FullName ?? "Admin",
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            ForeColor = Color.White,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            AutoEllipsis = true,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(0, 2, 4, 0),
+            Margin = new Padding(0, 0, 4, 0)
+        };
+        var lblUserRole = new Label
+        {
+            Text = curUser?.Role ?? "Yönetici",
+            Font = new Font("Segoe UI", 8f, FontStyle.Regular),
+            ForeColor = Color.FromArgb(148, 163, 184),
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            AutoEllipsis = true,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(0, 0, 4, 0),
+            Margin = new Padding(0, 0, 4, 0)
+        };
+
+        var btnLogout = new Button
+        {
+            Text = "Çıkış",
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(248, 113, 113),
+            BackColor = Color.Transparent,
+            FlatStyle = FlatStyle.Flat,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0),
+            Cursor = Cursors.Hand
+        };
+        btnLogout.FlatAppearance.BorderSize = 0;
+        btnLogout.Click += (s, e) => LogoutAction();
+
+        userLayout.Controls.Add(lblUserName, 0, 0);
+        userLayout.Controls.Add(lblUserRole, 0, 1);
+        userLayout.Controls.Add(btnLogout, 1, 0);
+        userLayout.SetRowSpan(btnLogout, 2);
+        pnlUserCard.Controls.Add(userLayout);
+
+        _pnlNavButtons.Dock = DockStyle.Fill;
+        _pnlNavButtons.BackColor = UITheme.SidebarBg;
+        _pnlNavButtons.FlowDirection = FlowDirection.TopDown;
+        _pnlNavButtons.WrapContents = false;
+        _pnlNavButtons.AutoScroll = true;
+        _pnlNavButtons.Padding = new Padding(4, 4, 4, 4);
+
+        _btnNavDash = CreateNavBtn("📊", "Genel Bakış", () => ShowPage(0));
+        _btnNavQuickSale = CreateNavBtn("⚡", "Hızlı Satış (POS)", () => OpenQuickSale("Satış"));
+        _btnNavProducts = CreateNavBtn("📦", "Ürünler & Stok", () => ShowPage(1));
+        _btnNavAccounts = CreateNavBtn("👥", "Cari Hesaplar", () => ShowPage(2));
+        _btnNavInvoices = CreateNavBtn("📄", "Faturalar", () => { ShowPage(4); _tabsFinance.SelectedIndex = 1; });
+        _btnNavStockMov = CreateNavBtn("🔄", "Stok Hareketleri", () => ShowPage(3));
+        _btnNavFinance = CreateNavBtn("💳", "Kasa & Finans", () => { ShowPage(4); _tabsFinance.SelectedIndex = 0; });
+        _btnNavBatchInv = CreateNavBtn("📂", "Toplu Fatura Aktar", () => OpenBatchInvoiceImportDialog());
+        _btnNavWhatsApp = CreateNavBtn("💬", "WhatsApp & Mobil", () => OpenWhatsAppAssistantDialog());
+        _btnNavAudit = CreateNavBtn("🕒", "İşlem Logları", () => ShowPage(5));
+        _btnNavUsers = CreateNavBtn("👤", "Kullanıcı & Yetki", () => ShowPage(6));
+        _btnNavSettings = CreateNavBtn("⚙️", "Ayarlar & Yedek", () => ShowPage(8));
+        _btnNavLicense = CreateNavBtn("🔑", "Lisans", () => ShowPage(7));
+
+        _pnlNavButtons.Controls.Add(new SidebarSectionTitle { Text = "Genel" });
+        _pnlNavButtons.Controls.Add(_btnNavDash);
+        _pnlNavButtons.Controls.Add(_btnNavQuickSale);
+
+        _pnlNavButtons.Controls.Add(new SidebarSectionTitle { Text = "Ticari İşlemler" });
+        _pnlNavButtons.Controls.Add(_btnNavProducts);
+        _pnlNavButtons.Controls.Add(_btnNavAccounts);
+        _pnlNavButtons.Controls.Add(_btnNavInvoices);
+        _pnlNavButtons.Controls.Add(_btnNavStockMov);
+        _pnlNavButtons.Controls.Add(_btnNavFinance);
+
+        _pnlNavButtons.Controls.Add(new SidebarSectionTitle { Text = "Operasyon" });
+        _pnlNavButtons.Controls.Add(_btnNavBatchInv);
+        _pnlNavButtons.Controls.Add(_btnNavWhatsApp);
+
+        _pnlNavButtons.Controls.Add(new SidebarSectionTitle { Text = "Yönetim" });
+        _pnlNavButtons.Controls.Add(_btnNavAudit);
+        _pnlNavButtons.Controls.Add(_btnNavUsers);
+        _pnlNavButtons.Controls.Add(_btnNavSettings);
+        _pnlNavButtons.Controls.Add(_btnNavLicense);
+
+        sidebarLayout.Controls.Add(pnlLogo, 0, 0);
+        sidebarLayout.Controls.Add(_pnlNavButtons, 0, 1);
+        sidebarLayout.Controls.Add(pnlUserCard, 0, 2);
+        _pnlSidebar.Controls.Add(sidebarLayout);
+    }
+
+    private void ToggleSidebar()
+    {
+        _isSidebarCollapsed = !_isSidebarCollapsed;
+
+        var collapsedWidth = 62F;
+        var expandedWidth = 210F;
+
+        _shellLayout.ColumnStyles[0].SizeType = SizeType.Absolute;
+        _shellLayout.ColumnStyles[0].Width = _isSidebarCollapsed ? collapsedWidth : expandedWidth;
+        _pnlSidebar.Width = _isSidebarCollapsed ? (int)collapsedWidth : (int)expandedWidth;
+        _pnlSidebar.MinimumSize = new Size((int)collapsedWidth, 0);
+        _pnlSidebar.MaximumSize = new Size((int)expandedWidth, 0);
+
+        _lblSidebarBrand.Visible = !_isSidebarCollapsed;
+        _lblSidebarBadge.Visible = !_isSidebarCollapsed;
+
+        foreach (var btn in _allNavButtons)
+        {
+            btn.IsCollapsed = _isSidebarCollapsed;
+            btn.Width = _isSidebarCollapsed ? 44 : 196;
+            btn.Visible = true;
+            btn.Invalidate();
+        }
+
+        foreach (Control c in _pnlNavButtons.Controls)
+        {
+            if (c is SidebarSectionTitle title)
+            {
+                title.IsCollapsed = _isSidebarCollapsed;
+                title.Visible = !_isSidebarCollapsed;
+            }
+            else
+            {
+                c.Visible = true;
+            }
+        }
+
+        _pnlNavButtons.AutoScroll = true;
+        _pnlNavButtons.PerformLayout();
+        _pnlSidebar.PerformLayout();
+        _shellLayout.PerformLayout();
+        _pnlTopHeader.Invalidate();
+        _contentArea.Invalidate();
+    }
+
+    private void BuildTopHeader()
+    {
+        _pnlTopHeader.Dock = DockStyle.Fill;
+        _pnlTopHeader.Height = 54;
+        _pnlTopHeader.BackColor = Color.White;
+        _pnlTopHeader.Padding = new Padding(12, 0, 12, 0);
+
+        _pnlTopHeader.Paint += (s, e) =>
+        {
+            using var pen = new Pen(UITheme.BorderColor, 1);
+            e.Graphics.DrawLine(pen, 0, _pnlTopHeader.Height - 1, _pnlTopHeader.Width, _pnlTopHeader.Height - 1);
+        };
+
+        // Sol Panel: Sayfa Başlığı ve Açıklaması (Dock Left, asla sağdaki butonlarla çakışmaz)
+        var pnlTitle = new Panel
+        {
+            Dock = DockStyle.Left,
+            AutoSize = true,
+            BackColor = Color.Transparent,
+            Padding = new Padding(4, 8, 8, 4)
+        };
+
+        _lblPageTitle.Font = new Font("Segoe UI", 11.5f, FontStyle.Bold);
+        _lblPageTitle.ForeColor = UITheme.TextPrimary;
+        _lblPageTitle.Text = "Genel Bakış (Dashboard)";
+        _lblPageTitle.AutoSize = true;
+        _lblPageTitle.Location = new Point(4, 6);
+
+        _lblPageSubTitle.Font = new Font("Segoe UI", 8.5f, FontStyle.Regular);
+        _lblPageSubTitle.ForeColor = UITheme.TextSecondary;
+        _lblPageSubTitle.Text = "İşletmenizin anlık finansal ve operasyonel göstergeleri";
+        _lblPageSubTitle.AutoSize = true;
+        _lblPageSubTitle.Location = new Point(5, 28);
+
+        pnlTitle.Controls.Add(_lblPageTitle);
+        pnlTitle.Controls.Add(_lblPageSubTitle);
+
+        // Sağ Panel: Hızlı Aksiyon Butonları & Arama (Dock Right)
+        var pnlActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Padding = new Padding(0, 10, 0, 0)
+        };
+
+        // Arama Kutusu
+        var pnlSearchContainer = new Panel
+        {
+            Width = 220,
+            Height = 32,
+            BackColor = Color.FromArgb(241, 245, 249),
+            Margin = new Padding(4, 1, 6, 0),
+            Padding = new Padding(6, 4, 6, 4)
+        };
+        pnlSearchContainer.Paint += (s, e) =>
+        {
+            using var pen = new Pen(Color.FromArgb(203, 213, 225), 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, pnlSearchContainer.Width - 1, pnlSearchContainer.Height - 1);
+        };
+
+        _txtGlobalSearch.Dock = DockStyle.Fill;
+        _txtGlobalSearch.BorderStyle = BorderStyle.None;
+        _txtGlobalSearch.BackColor = Color.FromArgb(241, 245, 249);
+        _txtGlobalSearch.Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+        _txtGlobalSearch.PlaceholderText = "🔍 Hızlı Ara (Ctrl+K)";
+        _txtGlobalSearch.TextChanged += (s, e) => OnGlobalSearchTextChanged();
+        _txtGlobalSearch.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.Down)
+            {
+                if (_lstGlobalResults.Items.Count > 0)
+                {
+                    _lstGlobalResults.Focus();
+                    _lstGlobalResults.SelectedIndex = 0;
+                }
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                _pnlGlobalResults.Visible = false;
+            }
+        };
+        pnlSearchContainer.Controls.Add(_txtGlobalSearch);
+
+        // Butonlar (Standart font ve boyutlar)
+        var btnSale = new Button
+        {
+            Text = "⚡ Satış (F3)",
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            BackColor = UITheme.Primary,
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Height = 32,
+            Width = 85,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(3, 1, 3, 0)
+        };
+        btnSale.FlatAppearance.BorderSize = 0;
+        btnSale.Click += (s, e) => OpenQuickSale("Satış");
+
+        var btnBuy = new Button
+        {
+            Text = "📥 Alış (F4)",
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            BackColor = Color.FromArgb(241, 245, 249),
+            ForeColor = UITheme.TextPrimary,
+            FlatStyle = FlatStyle.Flat,
+            Height = 32,
+            Width = 80,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(3, 1, 3, 0)
+        };
+        btnBuy.FlatAppearance.BorderSize = 0;
+        btnBuy.Click += (s, e) => OpenQuickSale("Alış");
+
+        _btnHeaderNotify.Text = "🔔 Bildirim";
+        _btnHeaderNotify.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        _btnHeaderNotify.BackColor = Color.FromArgb(241, 245, 249);
+        _btnHeaderNotify.ForeColor = UITheme.TextPrimary;
+        _btnHeaderNotify.FlatStyle = FlatStyle.Flat;
+        _btnHeaderNotify.Height = 32;
+        _btnHeaderNotify.AutoSize = true;
+        _btnHeaderNotify.Padding = new Padding(6, 0, 6, 0);
+        _btnHeaderNotify.Cursor = Cursors.Hand;
+        _btnHeaderNotify.Margin = new Padding(3, 1, 3, 0);
+        _btnHeaderNotify.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
+        _btnHeaderNotify.Click += (s, e) => OpenNotificationCenter();
+
+        var btnRefresh = new Button
+        {
+            Text = "🔄",
+            Font = new Font("Segoe UI", 9.5f),
+            BackColor = Color.FromArgb(241, 245, 249),
+            ForeColor = UITheme.TextSecondary,
+            FlatStyle = FlatStyle.Flat,
+            Height = 32,
+            Width = 34,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(3, 1, 0, 0)
+        };
+        btnRefresh.FlatAppearance.BorderSize = 0;
+        btnRefresh.Click += (s, e) => RefreshCurrentPage();
+
+        pnlActions.Controls.Add(pnlSearchContainer);
+        pnlActions.Controls.Add(btnSale);
+        pnlActions.Controls.Add(btnBuy);
+        pnlActions.Controls.Add(_btnHeaderNotify);
+        pnlActions.Controls.Add(btnRefresh);
+
+        _pnlTopHeader.Controls.Add(pnlTitle);
+        _pnlTopHeader.Controls.Add(pnlActions);
+    }
+
+    private void BuildGlobalSearchPopup()
+    {
+        _pnlGlobalResults.Size = new Size(440, 260);
+        _pnlGlobalResults.Location = new Point(590, 60);
+        _pnlGlobalResults.BackColor = Color.White;
+        _pnlGlobalResults.BorderStyle = BorderStyle.FixedSingle;
+        _pnlGlobalResults.Visible = false;
+
+        _lstGlobalResults.Dock = DockStyle.Fill;
+        _lstGlobalResults.BorderStyle = BorderStyle.None;
+        _lstGlobalResults.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+        _lstGlobalResults.ItemHeight = 28;
+        _lstGlobalResults.DoubleClick += (s, e) => ExecuteGlobalSearchResult();
+        _lstGlobalResults.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                ExecuteGlobalSearchResult();
+                e.Handled = true;
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                _pnlGlobalResults.Visible = false;
+            }
+        };
+
+        _pnlGlobalResults.Controls.Add(_lstGlobalResults);
+    }
+
+    private void OnGlobalSearchTextChanged()
+    {
+        string q = _txtGlobalSearch.Text.Trim();
+        if (q.Length < 2)
+        {
+            _pnlGlobalResults.Visible = false;
+            return;
+        }
+
+        _lstGlobalResults.Items.Clear();
+
+        try
+        {
+            // 1. Ürünlerde ara
+            var dtProds = ProductService.GetAllProducts(q);
+            int prodCount = 0;
+            foreach (DataRow r in dtProds.Rows)
+            {
+                if (prodCount++ >= 4) break;
+                string name = r["Name"]?.ToString() ?? "";
+                string barcode = r["Barcode"]?.ToString() ?? "";
+                decimal stock = Convert.ToDecimal(r["StockQuantity"] ?? 0);
+                decimal price = Convert.ToDecimal(r["SalePrice"] ?? 0);
+                _lstGlobalResults.Items.Add($"📦 ÜRÜN: {name} | Stok: {stock} | Fiyat: {price:N2} ₺");
+            }
+
+            // 2. Carilerde ara
+            var dtAccs = AccountService.GetAllAccounts(q);
+            int accCount = 0;
+            foreach (DataRow r in dtAccs.Rows)
+            {
+                if (accCount++ >= 4) break;
+                string title = r["Title"]?.ToString() ?? "";
+                decimal balance = Convert.ToDecimal(r["Balance"] ?? 0);
+                _lstGlobalResults.Items.Add($"👥 CARİ: {title} | Bakiye: {balance:N2} ₺");
+            }
+
+            if (_lstGlobalResults.Items.Count > 0)
+            {
+                _pnlGlobalResults.Visible = true;
+                _pnlGlobalResults.BringToFront();
+            }
+            else
+            {
+                _pnlGlobalResults.Visible = false;
+            }
+        }
+        catch
+        {
+            _pnlGlobalResults.Visible = false;
+        }
+    }
+
+    private void ExecuteGlobalSearchResult()
+    {
+        if (_lstGlobalResults.SelectedItem == null) return;
+        string selected = _lstGlobalResults.SelectedItem.ToString() ?? "";
+        _pnlGlobalResults.Visible = false;
+        _txtGlobalSearch.Clear();
+
+        if (selected.StartsWith("📦 ÜRÜN:"))
+        {
+            string name = selected.Substring(8);
+            int pipeIdx = name.IndexOf('|');
+            if (pipeIdx > 0) name = name.Substring(0, pipeIdx).Trim();
+
+            ShowPage(1); // Ürünler Sayfası
+            _txtProductSearch.Text = name;
+            _txtProductSearch.Focus();
+            _txtProductSearch.SelectAll();
+        }
+        else if (selected.StartsWith("👥 CARİ:"))
+        {
+            string name = selected.Substring(8);
+            int pipeIdx = name.IndexOf('|');
+            if (pipeIdx > 0) name = name.Substring(0, pipeIdx).Trim();
+
+            ShowPage(2); // Cari Sayfası
+            _txtAccountSearch.Text = name;
+            _txtAccountSearch.Focus();
+            _txtAccountSearch.SelectAll();
+        }
+    }
+
+    private void RefreshCurrentPage()
+    {
+        switch (_currentNavIndex)
+        {
+            case 0: RefreshDashboard(); break;
+            case 1: RefreshProducts(); break;
+            case 2: RefreshAccounts(); break;
+            case 3: RefreshStockMovements(); break;
+            case 4: RefreshAccountMovements(); RefreshInvoices(); break;
+            case 5: RefreshAuditLogs(); break;
+            case 6: RefreshUsers(); break;
+            case 7: RefreshLicensePage(); break;
+        }
+    }
+
     private void BuildStatusStrip()
     {
         _statusStrip.Dock = DockStyle.Bottom;
@@ -242,20 +852,20 @@ public class MainForm : KryptonForm
         _statusStrip.SizingGrip = false;
 
         var curUser = UserService.CurrentUser;
-        _statusUser.Text = $"👤 {curUser?.FullName ?? "Admin"} ({curUser?.Role ?? "Yönetici"})";
+        _statusUser.Text = $"Kullanıcı: {curUser?.FullName ?? "Admin"} ({curUser?.Role ?? "Yönetici"})";
         _statusUser.ForeColor = Color.FromArgb(226, 232, 240);
         _statusUser.Margin = new Padding(8, 0, 16, 0);
 
         var lic = LicenseService.CurrentLicense;
-        _statusLicense.Text = $"🔑 Lisans: {lic.DaysRemaining} Gün Kaldı ({lic.LicensedTo})";
+        _statusLicense.Text = $"Lisans: {lic.DaysRemaining} Gün Kaldı ({lic.LicensedTo})";
         _statusLicense.ForeColor = lic.DaysRemaining < 30 ? Color.FromArgb(248, 113, 113) : Color.FromArgb(52, 211, 153);
         _statusLicense.Margin = new Padding(0, 0, 16, 0);
 
-        _statusDb.Text = "🗄️ SQL Server: Bağlı";
+        _statusDb.Text = "SQL Server: Bağlı";
         _statusDb.ForeColor = Color.FromArgb(56, 189, 248);
         _statusDb.Margin = new Padding(0, 0, 16, 0);
 
-        _statusClock.Text = $"🕒 {DateTime.Now:HH:mm:ss}";
+        _statusClock.Text = $"Saat: {DateTime.Now:HH:mm:ss}";
         _statusClock.ForeColor = Color.FromArgb(148, 163, 184);
         _statusClock.Alignment = ToolStripItemAlignment.Right;
         _statusClock.Margin = new Padding(0, 0, 12, 0);
@@ -435,15 +1045,6 @@ public class MainForm : KryptonForm
         };
         btnOverdueDash.Click += (s, e) => OpenNotificationCenter(1);
 
-        var btnTgDash = new KryptonRibbonGroupButton 
-        { 
-            TextLine1 = "🤖 Telegram Cep", 
-            TextLine2 = "Anlık Durum",
-            ImageLarge = RibbonIconFactory.CreateIcon("telegram", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("telegram", 16)
-        };
-        btnTgDash.Click += (s, e) => OpenTelegramConfig();
-
         var btnMobDash = new KryptonRibbonGroupButton 
         { 
             TextLine1 = "📱 Canlı Barkod", 
@@ -454,9 +1055,33 @@ public class MainForm : KryptonForm
         btnMobDash.Click += (s, e) => OpenMobileScanner();
 
         tripDashDue.Items.Add(btnOverdueDash);
-        tripDashDue.Items.Add(btnTgDash);
         tripDashDue.Items.Add(btnMobDash);
         grpDashDue.Items.Add(tripDashDue);
+
+        var tripDashDue2 = new KryptonRibbonGroupTriple();
+
+        var btnWhatsAppDash = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "💬 WhatsApp Cep", 
+            TextLine2 = "Mobil Portal & Bot",
+            ImageLarge = RibbonIconFactory.CreateIcon("whatsapp", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("whatsapp", 16)
+        };
+        btnWhatsAppDash.Click += (s, e) => OpenWhatsAppAssistantDialog();
+
+        var btnBatchInvDash = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "📂 Toplu Fatura", 
+            TextLine2 = "Çoklu PDF Aktar",
+            ImageLarge = RibbonIconFactory.CreateIcon("batchinvoices", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("batchinvoices", 16)
+        };
+        btnBatchInvDash.Click += (s, e) => OpenBatchInvoiceImportDialog();
+
+        tripDashDue2.Items.Add(btnWhatsAppDash);
+        tripDashDue2.Items.Add(btnBatchInvDash);
+        grpDashDue.Items.Add(tripDashDue2);
+
         tabDash.Groups.Add(grpDashDue);
 
         _ribbon.RibbonTabs.Add(tabDash);
@@ -563,7 +1188,21 @@ public class MainForm : KryptonForm
             CustomerDisplayForm.ShowOrToggle();
         };
 
+        var btnFastIbanQr = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "⚡ FAST / Karekod", 
+            TextLine2 = "IBAN Tanımla",
+            ImageLarge = RibbonIconFactory.CreateIcon("quicksale", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("quicksale", 16)
+        };
+        btnFastIbanQr.Click += (s, e) =>
+        {
+            using var dlg = new FastQrPaymentDialog(100, "TEST-KAREKOD");
+            dlg.ShowDialog(this);
+        };
+
         tripHardware.Items.Add(btnCustomerDisplay);
+        tripHardware.Items.Add(btnFastIbanQr);
         grpHardware.Items.Add(tripHardware);
         tabSales.Groups.Add(grpHardware);
 
@@ -681,6 +1320,74 @@ public class MainForm : KryptonForm
         tripWh.Items.Add(btnCount);
         grpWh.Items.Add(tripWh);
         tabStock.Groups.Add(grpWh);
+
+        // --- 4. AKILLI FİYATLANDIRMA & STOK ANALİZİ GRUBU ---
+        var grpSmartPricing = new KryptonRibbonGroup { TextLine1 = "Akıllı Fiyat & Analiz" };
+        var tripSmartPrice = new KryptonRibbonGroupTriple();
+
+        var btnBulkPrice = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "🏷️ Toplu Fiyat", 
+            TextLine2 = "% Zam & İndirim",
+            ImageLarge = RibbonIconFactory.CreateIcon("barcode", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("barcode", 16)
+        };
+        btnBulkPrice.Click += (s, e) =>
+        {
+            using var dlg = new BulkPriceUpdateDialog();
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                RefreshProducts();
+            }
+        };
+
+        var btnExpiryAlerts = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "⚠️ SKT & Kritik", 
+            TextLine2 = "Stok Alarmları",
+            ImageLarge = RibbonIconFactory.CreateIcon("due", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("due", 16)
+        };
+        btnExpiryAlerts.Click += (s, e) =>
+        {
+            using var dlg = new ExpiryAndStockAlertsDialog();
+            dlg.ShowDialog(this);
+        };
+
+        var btnDeadStock = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "📦 Ölü Stok", 
+            TextLine2 = "Durgun Sermaye",
+            ImageLarge = RibbonIconFactory.CreateIcon("stockcount", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("stockcount", 16)
+        };
+        btnDeadStock.Click += (s, e) =>
+        {
+            using var dlg = new DeadStockReportDialog();
+            dlg.ShowDialog(this);
+        };
+
+        var btnSoldProducts = new KryptonRibbonGroupButton
+        {
+            TextLine1 = "📈 Satılan Ürünler",
+            TextLine2 = "Adet, Tutar, Stok",
+            ImageLarge = RibbonIconFactory.CreateIcon("stockcount", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("stockcount", 16)
+        };
+        btnSoldProducts.Click += (s, e) =>
+        {
+            using var dlg = new SoldProductsReportDialog();
+            dlg.ShowDialog(this);
+        };
+
+        tripSmartPrice.Items.Add(btnBulkPrice);
+        tripSmartPrice.Items.Add(btnExpiryAlerts);
+        tripSmartPrice.Items.Add(btnDeadStock);
+        grpSmartPricing.Items.Add(tripSmartPrice);
+        var tripSalesReport = new KryptonRibbonGroupTriple();
+        tripSalesReport.Items!.Add(btnSoldProducts);
+        grpSmartPricing.Items.Add(tripSalesReport);
+        tabStock.Groups.Add(grpSmartPricing);
 
         _ribbon.RibbonTabs.Add(tabStock);
 
@@ -838,6 +1545,19 @@ public class MainForm : KryptonForm
         tripInv.Items.Add(btnInvList);
         tripInv.Items.Add(btnExcelInv);
         grpInv.Items.Add(tripInv);
+
+        var tripInv2 = new KryptonRibbonGroupTriple();
+        var btnBatchInvRib = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "📂 Toplu PDF Fatura", 
+            TextLine2 = "Çoklu Yükle & Al",
+            ImageLarge = RibbonIconFactory.CreateIcon("batchinvoices", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("batchinvoices", 16)
+        };
+        btnBatchInvRib.Click += (s, e) => OpenBatchInvoiceImportDialog();
+        tripInv2.Items.Add(btnBatchInvRib);
+        grpInv.Items.Add(tripInv2);
+
         tabFin.Groups.Add(grpInv);
 
         var grpCashFlow = new KryptonRibbonGroup { TextLine1 = "Kasa & Nakit Akışı" };
@@ -876,6 +1596,41 @@ public class MainForm : KryptonForm
         grpCashFlow.Items.Add(tripCashFlow);
         tabFin.Groups.Add(grpCashFlow);
 
+        // --- 3. MASRAFLAR, NET KÂR & DÖVİZ KURLARI GRUBU ---
+        var grpExpensesAndRates = new KryptonRibbonGroup { TextLine1 = "Giderler & Kurlar" };
+        var tripExpensesAndRates = new KryptonRibbonGroupTriple();
+
+        var btnExpenses = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "📉 Dükkan Giderleri", 
+            TextLine2 = "Net Kâr / Zarar",
+            ImageLarge = RibbonIconFactory.CreateIcon("cash", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("cash", 16)
+        };
+        btnExpenses.Click += (s, e) =>
+        {
+            using var dlg = new ExpenseManageDialog();
+            dlg.ShowDialog(this);
+        };
+
+        var btnCurrency = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "💱 Canlı TCMB", 
+            TextLine2 = "Döviz Kurları",
+            ImageLarge = RibbonIconFactory.CreateIcon("refresh", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("refresh", 16)
+        };
+        btnCurrency.Click += (s, e) =>
+        {
+            using var dlg = new CurrencyRatesDialog();
+            dlg.ShowDialog(this);
+        };
+
+        tripExpensesAndRates.Items.Add(btnExpenses);
+        tripExpensesAndRates.Items.Add(btnCurrency);
+        grpExpensesAndRates.Items.Add(tripExpensesAndRates);
+        tabFin.Groups.Add(grpExpensesAndRates);
+
         _ribbon.RibbonTabs.Add(tabFin);
 
         // ==========================================
@@ -895,15 +1650,6 @@ public class MainForm : KryptonForm
         };
         btnMobScan.Click += (s, e) => OpenMobileScanner();
 
-        var btnTg = new KryptonRibbonGroupButton 
-        { 
-            TextLine1 = "🤖 Telegram Botu", 
-            TextLine2 = "Cep Takip & Rapor",
-            ImageLarge = RibbonIconFactory.CreateIcon("telegram", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("telegram", 16)
-        };
-        btnTg.Click += (s, e) => OpenTelegramConfig();
-
         var btnNotifCenter = new KryptonRibbonGroupButton 
         { 
             TextLine1 = "🔔 SMS & Bildirim", 
@@ -914,9 +1660,33 @@ public class MainForm : KryptonForm
         btnNotifCenter.Click += (s, e) => OpenNotificationCenter();
 
         tripSmart.Items.Add(btnMobScan);
-        tripSmart.Items.Add(btnTg);
         tripSmart.Items.Add(btnNotifCenter);
         grpSmart.Items.Add(tripSmart);
+
+        var tripSmart2 = new KryptonRibbonGroupTriple();
+
+        var btnWhatsAppBot = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "💬 WhatsApp Bot", 
+            TextLine2 = "Online Mobil Portal",
+            ImageLarge = RibbonIconFactory.CreateIcon("whatsapp", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("whatsapp", 16)
+        };
+        btnWhatsAppBot.Click += (s, e) => OpenWhatsAppAssistantDialog();
+
+        var btnBatchInvMob = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "📂 Toplu Fatura", 
+            TextLine2 = "Çoklu PDF Aktar",
+            ImageLarge = RibbonIconFactory.CreateIcon("batchinvoices", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("batchinvoices", 16)
+        };
+        btnBatchInvMob.Click += (s, e) => OpenBatchInvoiceImportDialog();
+
+        tripSmart2.Items.Add(btnWhatsAppBot);
+        tripSmart2.Items.Add(btnBatchInvMob);
+        grpSmart.Items.Add(tripSmart2);
+
         tabMob.Groups.Add(grpSmart);
 
         _ribbon.RibbonTabs.Add(tabMob);
@@ -960,6 +1730,19 @@ public class MainForm : KryptonForm
         tripSys.Items.Add(btnLogs);
         tripSys.Items.Add(btnBackup);
         grpSys.Items.Add(tripSys);
+
+        var tripSys2 = new KryptonRibbonGroupTriple();
+        var btnResetDbRibbon = new KryptonRibbonGroupButton 
+        { 
+            TextLine1 = "⚠️ DB Sıfırla", 
+            TextLine2 = "Fabrika Ayarlarına Dön",
+            ImageLarge = RibbonIconFactory.CreateIcon("danger", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("danger", 16)
+        };
+        btnResetDbRibbon.Click += (s, e) => ResetDatabaseAction();
+        tripSys2.Items.Add(btnResetDbRibbon);
+        grpSys.Items.Add(tripSys2);
+
         tabSys.Groups.Add(grpSys);
 
         var grpCloud = new KryptonRibbonGroup { TextLine1 = "Bulut & Harici" };
@@ -1162,6 +1945,20 @@ public class MainForm : KryptonForm
                     _ribbonBtnNotify.TextLine2 = "Kritik Uyarılar";
                 }
             }
+
+            // Modern SaaS Header ve Sidebar Rozetlerini Canlı Güncelle
+            if (counts.TotalAlertCount > 0)
+            {
+                _btnHeaderNotify.Text = $"🔔 Bildirim ({counts.TotalAlertCount})";
+                _btnHeaderNotify.BackColor = Color.FromArgb(254, 226, 226);
+                _btnNavDash.BadgeText = counts.TotalAlertCount.ToString();
+            }
+            else
+            {
+                _btnHeaderNotify.Text = "🔔 Bildirim";
+                _btnHeaderNotify.BackColor = Color.FromArgb(241, 245, 249);
+                _btnNavDash.BadgeText = "";
+            }
         }
         catch { }
     }
@@ -1225,6 +2022,57 @@ public class MainForm : KryptonForm
         }
 
         _currentNavIndex = index;
+
+        // Modern Sidebar Navigasyon Butonlarını ve Başlığı Güncelle
+        foreach (var btn in _allNavButtons) btn.IsActive = false;
+        switch (index)
+        {
+            case 0:
+                _btnNavDash.IsActive = true;
+                _lblPageTitle.Text = "📊 Genel Bakış (Dashboard)";
+                _lblPageSubTitle.Text = "İşletmenizin anlık finansal ve operasyonel göstergeleri";
+                break;
+            case 1:
+                _btnNavProducts.IsActive = true;
+                _lblPageTitle.Text = "📦 Ürün & Stok Yönetimi";
+                _lblPageSubTitle.Text = "Tüm ürün tanımları, barkodlar, birimler ve depo stokları";
+                break;
+            case 2:
+                _btnNavAccounts.IsActive = true;
+                _lblPageTitle.Text = "👥 Cari Hesaplar & Veresiye";
+                _lblPageSubTitle.Text = "Müşteri ve tedarikçi bakiyeleri, veresiye limitleri ve risk durumu";
+                break;
+            case 3:
+                _btnNavStockMov.IsActive = true;
+                _lblPageTitle.Text = "🔄 Stok Hareketleri";
+                _lblPageSubTitle.Text = "Giriş, çıkış, sayım ve transfer işlem geçmişi";
+                break;
+            case 4:
+                _btnNavFinance.IsActive = true;
+                _lblPageTitle.Text = "💳 Kasa, Finans & Faturalar";
+                _lblPageSubTitle.Text = "Kasa hareketleri, tahsilat/ödemeler ve fatura kayıtları";
+                break;
+            case 5:
+                _btnNavAudit.IsActive = true;
+                _lblPageTitle.Text = "🕒 İşlem Geçmişi & Loglar";
+                _lblPageSubTitle.Text = "Sistemdeki tüm kayıt, silme ve düzenleme hareketleri";
+                break;
+            case 6:
+                _btnNavUsers.IsActive = true;
+                _lblPageTitle.Text = "👤 Kullanıcı & Yetki Yönetimi";
+                _lblPageSubTitle.Text = "Personel hesapları ve modül bazlı işlem izinleri";
+                break;
+            case 7:
+                _btnNavLicense.IsActive = true;
+                _lblPageTitle.Text = "🔑 Lisans Bilgileri";
+                _lblPageSubTitle.Text = "Lisans anahtarı ve sistem kullanım geçerliliği";
+                break;
+            case 8:
+                _btnNavSettings.IsActive = true;
+                _lblPageTitle.Text = "⚙️ Sistem Ayarları & Yedek";
+                _lblPageSubTitle.Text = "SQL bağlantısı, şirket parametreleri ve bulut yedekleme";
+                break;
+        }
 
         _contentArea.Controls.Clear();
         switch (index)
@@ -1344,7 +2192,7 @@ public class MainForm : KryptonForm
         _gridRecentTransactions.BringToFront();
 
         // Dashboard Hızlı Ürün Arama & Satış Kartı
-        var pnlDashSearch = new CardPanel { Dock = DockStyle.Top, Height = 190, Padding = new Padding(12, 10, 12, 10), Margin = new Padding(0, 0, 0, 15) };
+        var pnlDashSearch = new CardPanel { Dock = DockStyle.Top, Height = 330, Padding = new Padding(12, 10, 12, 10), Margin = new Padding(0, 0, 0, 15) };
         var pnlDashSearchTop = new Panel { Dock = DockStyle.Top, Height = 36 };
         var lblDashSearchTitle = new Label 
         { 
@@ -1531,12 +2379,28 @@ public class MainForm : KryptonForm
             if (_dashCardsFlow != null && _dashCardsFlow.Visible)
             {
                 int cardCount = 5;
-                int cardW = Math.Clamp((targetW - 48) / cardCount, 220, 310);
-                if (_cardStockVal != null) _cardStockVal.Width = cardW;
-                if (_cardReceivable != null) _cardReceivable.Width = cardW;
-                if (_cardPayable != null) _cardPayable.Width = cardW;
-                if (_cardTodayCash != null) _cardTodayCash.Width = cardW;
-                if (_cardOverdue != null) _cardOverdue.Width = cardW;
+                if (targetW >= 1150)
+                {
+                    _dashCardsFlow.WrapContents = false;
+                    _dashCardsFlow.Height = 105;
+                    int cardW = (targetW - 50) / cardCount;
+                    if (_cardStockVal != null) _cardStockVal.Width = cardW;
+                    if (_cardReceivable != null) _cardReceivable.Width = cardW;
+                    if (_cardPayable != null) _cardPayable.Width = cardW;
+                    if (_cardTodayCash != null) _cardTodayCash.Width = cardW;
+                    if (_cardOverdue != null) _cardOverdue.Width = cardW;
+                }
+                else
+                {
+                    _dashCardsFlow.WrapContents = true;
+                    _dashCardsFlow.Height = 215;
+                    int cardW = (targetW - 40) / 3;
+                    if (_cardStockVal != null) _cardStockVal.Width = cardW;
+                    if (_cardReceivable != null) _cardReceivable.Width = cardW;
+                    if (_cardPayable != null) _cardPayable.Width = cardW;
+                    if (_cardTodayCash != null) _cardTodayCash.Width = (targetW - 30) / 2;
+                    if (_cardOverdue != null) _cardOverdue.Width = (targetW - 30) / 2;
+                }
             }
 
             Control?[] items =
@@ -1712,42 +2576,41 @@ public class MainForm : KryptonForm
         header.Dock = DockStyle.Top;
         header.Height = 65;
 
-        // Filtre ve Buton Paneli (Krypton Ribbon Tarzı Kompakt, Kurumsal ve Tek Satırlı Araç Çubuğu)
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 52, Padding = new Padding(12, 8, 12, 8) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
 
-        // Sol: Filtreler
+        // Sol: Filtreler (Dock Left)
         var rowFilters = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Left,
+            AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            AutoScroll = false,
-            Margin = new Padding(0)
+            BackColor = Color.Transparent
         };
 
-        _txtProductSearch.Width = 240;
+        _txtProductSearch.Width = 190;
         _txtProductSearch.Height = 32;
         _txtProductSearch.PlaceholderText = "🔍 Ürün Ara (Ad, Kod, Barkod)...";
         _txtProductSearch.Font = UITheme.RegularFont;
         _txtProductSearch.TextChanged += (s, e) => RefreshProducts();
 
-        _cmbProductCategory.Width = 140;
+        _cmbProductCategory.Width = 115;
         _cmbProductCategory.Height = 32;
         _cmbProductCategory.Font = UITheme.RegularFont;
         _cmbProductCategory.SelectedIndexChanged += ProductCategoryChanged;
 
-        _cmbProductWarehouse.Width = 150;
+        _cmbProductWarehouse.Width = 115;
         _cmbProductWarehouse.Height = 32;
         _cmbProductWarehouse.Font = UITheme.RegularFont;
         _cmbProductWarehouse.SelectedIndexChanged += (s, e) => RefreshProducts();
 
-        _chkOnlyCritical.Text = "⚠️ Kritik Stok";
+        _chkOnlyCritical.Text = "⚠️ Kritik";
         _chkOnlyCritical.Font = UITheme.RegularFont;
         _chkOnlyCritical.AutoSize = true;
-        _chkOnlyCritical.Margin = new Padding(8, 6, 8, 0);
+        _chkOnlyCritical.Margin = new Padding(6, 6, 6, 0);
         _chkOnlyCritical.CheckedChanged += (s, e) => RefreshProducts();
 
-        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshProducts(), 40, 32);
+        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshProducts(), 36, 32);
 
         rowFilters.Controls.Add(_txtProductSearch);
         rowFilters.Controls.Add(_cmbProductCategory);
@@ -1755,24 +2618,20 @@ public class MainForm : KryptonForm
         rowFilters.Controls.Add(_chkOnlyCritical);
         rowFilters.Controls.Add(btnRefresh);
 
-        // Sağ: Kurumsal Aksiyon Butonları
+        // Sağ: Kurumsal Aksiyon Butonları (Dock Right)
         var rowActions = new FlowLayoutPanel
         {
             Dock = DockStyle.Right,
             AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            Margin = new Padding(0)
+            BackColor = Color.Transparent
         };
 
-        var btnAdd = UITheme.CreateButton("➕ Yeni Ürün", UITheme.Primary, Color.White, (s, e) => AddProduct(), 125, 32);
-        btnAdd.Margin = new Padding(0, 0, 6, 0);
+        var btnAdd = UITheme.CreateButton("➕ Yeni Ürün", UITheme.Primary, Color.White, (s, e) => AddProduct(), 110, 32);
+        var btnFastEntry = UITheme.CreateButton("⚡ Hızlı Giriş", Color.FromArgb(16, 185, 129), Color.White, (s, e) => OpenFastProductEntry(), 105, 32);
 
-        var btnFastEntry = UITheme.CreateButton("⚡ Hızlı Giriş", Color.FromArgb(16, 185, 129), Color.White, (s, e) => OpenFastProductEntry(), 120, 32);
-        btnFastEntry.Margin = new Padding(0, 0, 6, 0);
-
-        // Diğer Tüm İşlemler İçin Kurumsal Dropdown Menü (Ribbon Tarzı Kompakt)
+        // Diğer Tüm İşlemler İçin Kurumsal Dropdown Menü
         var mnuTools = new ContextMenuStrip();
         mnuTools.Items.Add("📜 Stok & Fiyat Değişim Tarihçesi", null, (s, e) => OpenSelectedProductPriceHistory());
         mnuTools.Items.Add("📋 Stok Hareket Detayı", null, (s, e) => ViewProductHistory());
@@ -1790,13 +2649,13 @@ public class MainForm : KryptonForm
         mnuTools.Items.Add("🗑️ Seçilen Ürünleri Toplu Sil", null, (s, e) => DeleteProductsBulkAction());
         mnuTools.Items.Add("🗑️ Ürünü Pasife Al / Sil", null, (s, e) => DeleteProduct());
 
-        var btnTools = UITheme.CreateButton("⚙️ İşlemler ▾", UITheme.Secondary, Color.White, (s, e) =>
+        var btnTools = UITheme.CreateButton("⚙️ İşlemler ▾", Color.FromArgb(241, 245, 249), UITheme.TextPrimary, (s, e) =>
         {
             if (s is Control btn)
             {
                 mnuTools.Show(btn, new Point(0, btn.Height));
             }
-        }, 115, 32);
+        }, 110, 32);
 
         rowActions.Controls.Add(btnAdd);
         rowActions.Controls.Add(btnFastEntry);
@@ -1926,76 +2785,90 @@ public class MainForm : KryptonForm
     {
         _pnlAccounts = new Panel { Dock = DockStyle.Fill };
 
-        var header = CreatePageHeader("Cari & Veresiye Takibi", "Müşteriler, tedarikçiler, açık hesap veresiye bakiyeleri, limit ve kara liste kontrolleri");
-        _pnlAccounts.Controls.Add(header);
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
 
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 65, Padding = new Padding(10, 12, 10, 12) };
+        // Sol: Filtreler (Dock Left)
+        var pnlLeftFilters = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Left,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
 
-        _txtAccountSearch.Width = 180;
+        _txtAccountSearch.Width = 190;
         _txtAccountSearch.Height = 32;
         _txtAccountSearch.PlaceholderText = "🔍 Cari Ara (F2)...";
+        _txtAccountSearch.Font = UITheme.RegularFont;
         _txtAccountSearch.TextChanged += (s, e) => RefreshAccounts();
 
-        _cmbAccountType.Width = 100;
+        _cmbAccountType.Width = 110;
         _cmbAccountType.Height = 32;
-        _cmbAccountType.Items.AddRange(new object[] { "Tümü", "Müşteri", "Tedarikçi" });
+        _cmbAccountType.Font = UITheme.RegularFont;
+        _cmbAccountType.Items.Clear();
+        _cmbAccountType.Items.AddRange(new object[] { "Tüm Cariler", "Müşteri", "Tedarikçi" });
         _cmbAccountType.SelectedIndex = 0;
         _cmbAccountType.SelectedIndexChanged += (s, e) => RefreshAccounts();
 
-        var btnAdd = UITheme.CreateButton("+ Yeni Cari", UITheme.Primary, Color.White, (s, e) => AddAccount(), 95, 34);
-        var btnEdit = UITheme.CreateButton("✏️ Düzenle", UITheme.Secondary, Color.White, (s, e) => EditAccount(), 85, 34);
-        var btnDebt = UITheme.CreateButton("🔴 Borç (F5)", Color.FromArgb(220, 38, 38), Color.White, (s, e) => AddAccountMovementForSelected("Satış"), 110, 34);
-        var btnPayment = UITheme.CreateButton("🟢 Tahsilat (F6)", Color.FromArgb(16, 185, 129), Color.White, (s, e) => AddAccountMovementForSelected("Tahsilat"), 120, 34);
-        var btnStatement = UITheme.CreateButton("📑 Ekstre (F10)", UITheme.Info, Color.White, (s, e) => ViewAccountStatement(), 115, 34);
-        var btnWhatsApp = UITheme.CreateButton("📲 WhatsApp", Color.FromArgb(37, 211, 102), Color.White, (s, e) => SendWhatsAppForSelected(), 110, 34);
-        var btnDue = UITheme.CreateButton("📅 Vade Takibi", Color.FromArgb(217, 119, 6), Color.White, (s, e) => { using var dlg = new DueReceivablesDialog(); dlg.ShowDialog(); RefreshAll(); }, 115, 34);
-        var btnExcelImp = UITheme.CreateButton("📥 Excel'den Al", Color.FromArgb(14, 154, 167), Color.White, (s, e) => OpenExcelImport("Cari"), 120, 34);
-        var btnExcelExp = UITheme.CreateButton("📊 Excel", UITheme.Primary, Color.White, ExportAccountsToExcel, 85, 34);
-        var btnBulkDeleteAcc = UITheme.CreateButton("🗑️ Çoklu Sil", Color.FromArgb(220, 38, 38), Color.White, (s, e) => DeleteAccountsBulkAction(), 105, 34);
-        var btnDelete = UITheme.CreateButton("🗑️ Sil", UITheme.BorderColor, UITheme.Danger, (s, e) => DeleteAccount(), 65, 34);
-        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshAccounts(), 40, 34);
+        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshAccounts(), 36, 32);
 
-        var filterFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, AutoScroll = true, WrapContents = false };
-        filterFlow.Controls.Add(_txtAccountSearch);
-        filterFlow.Controls.Add(_cmbAccountType);
-        filterFlow.Controls.Add(btnAdd);
-        filterFlow.Controls.Add(btnEdit);
-        filterFlow.Controls.Add(btnDebt);
-        filterFlow.Controls.Add(btnPayment);
-        filterFlow.Controls.Add(btnStatement);
-        filterFlow.Controls.Add(btnWhatsApp);
-        filterFlow.Controls.Add(btnDue);
-        filterFlow.Controls.Add(btnExcelImp);
-        filterFlow.Controls.Add(btnExcelExp);
-        filterFlow.Controls.Add(btnBulkDeleteAcc);
-        filterFlow.Controls.Add(btnDelete);
-        filterFlow.Controls.Add(btnRefresh);
+        pnlLeftFilters.Controls.Add(_txtAccountSearch);
+        pnlLeftFilters.Controls.Add(_cmbAccountType);
+        pnlLeftFilters.Controls.Add(btnRefresh);
 
-        toolbar.Controls.Add(filterFlow);
+        // Sağ: Ana Aksiyon Butonları & Dropdown (Dock Right)
+        var pnlRightActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
 
-        var gridContainer = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 15, 0, 0) };
+        var btnAdd = UITheme.CreateButton("➕ Yeni Cari", UITheme.Primary, Color.White, (s, e) => AddAccount(), 105, 32);
+        var btnPayment = UITheme.CreateButton("🟢 Tahsilat (F6)", Color.FromArgb(16, 185, 129), Color.White, (s, e) => AddAccountMovementForSelected("Tahsilat"), 110, 32);
+        var btnDebt = UITheme.CreateButton("🔴 Borç Yaz (F5)", Color.FromArgb(220, 38, 38), Color.White, (s, e) => AddAccountMovementForSelected("Satış"), 110, 32);
+        var btnStatement = UITheme.CreateButton("📑 Ekstre (F10)", UITheme.Info, Color.White, (s, e) => ViewAccountStatement(), 105, 32);
+
+        // Diğer İşlemler Dropdown Menüsü
+        var mnuAccMore = new ContextMenuStrip();
+        mnuAccMore.Items.Add("✏️ Cari Kartı Düzenle", null, (s, e) => EditAccount());
+        mnuAccMore.Items.Add("📲 WhatsApp ile Bakiye Bildir", null, (s, e) => SendWhatsAppForSelected());
+        mnuAccMore.Items.Add("📅 Vade & Borç Takibi", null, (s, e) => { using var dlg = new DueReceivablesDialog(); dlg.ShowDialog(); RefreshAll(); });
+        mnuAccMore.Items.Add(new ToolStripSeparator());
+        mnuAccMore.Items.Add("📥 Excel'den Cari Yükle", null, (s, e) => OpenExcelImport("Cari"));
+        mnuAccMore.Items.Add("📊 Excel Listesi Olarak İndir", null, ExportAccountsToExcel);
+        mnuAccMore.Items.Add(new ToolStripSeparator());
+        mnuAccMore.Items.Add("🗑️ Seçili Cariyi Sil", null, (s, e) => DeleteAccount());
+        mnuAccMore.Items.Add("🗑️ Çoklu Sil (Seçilenleri)", null, (s, e) => DeleteAccountsBulkAction());
+
+        var btnMore = UITheme.CreateButton("⚡ İşlemler ▼", Color.FromArgb(241, 245, 249), UITheme.TextPrimary, (s, e) =>
+        {
+            if (s is Button b) mnuAccMore.Show(b, new Point(0, b.Height));
+        }, 105, 32);
+
+        pnlRightActions.Controls.Add(btnAdd);
+        pnlRightActions.Controls.Add(btnPayment);
+        pnlRightActions.Controls.Add(btnDebt);
+        pnlRightActions.Controls.Add(btnStatement);
+        pnlRightActions.Controls.Add(btnMore);
+
+        toolbar.Controls.Add(pnlLeftFilters);
+        toolbar.Controls.Add(pnlRightActions);
+
+        var gridContainer = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 0), Padding = new Padding(0) };
         UITheme.ApplyGridStyle(_gridAccounts);
         _gridAccounts.MultiSelect = true;
         _gridAccounts.CellDoubleClick += (s, e) => ViewAccountStatement();
         _gridAccounts.CellFormatting += GridAccounts_CellFormatting;
-
-        var mnuAcc = new ContextMenuStrip();
-        mnuAcc.Items.Add("📑 Hesap Ekstresi Aç (F10)", null, (s, e) => ViewAccountStatement());
-        mnuAcc.Items.Add("📲 WhatsApp ile Bakiye / Borç Bildir", null, (s, e) => SendWhatsAppForSelected());
-        mnuAcc.Items.Add(new ToolStripSeparator());
-        mnuAcc.Items.Add("🔴 Cariye Borç Yaz (F5)", null, (s, e) => AddAccountMovementForSelected("Satış"));
-        mnuAcc.Items.Add("🟢 Cariden Tahsilat Al (F6)", null, (s, e) => AddAccountMovementForSelected("Tahsilat"));
-        mnuAcc.Items.Add(new ToolStripSeparator());
-        mnuAcc.Items.Add("✏️ Cari Kartı Düzenle", null, (s, e) => EditAccount());
-        mnuAcc.Items.Add(new ToolStripSeparator());
-        mnuAcc.Items.Add("🗑️ Seçilen Carileri Toplu Sil (Çoklu)", null, (s, e) => DeleteAccountsBulkAction());
-        _gridAccounts.ContextMenuStrip = mnuAcc;
+        _gridAccounts.ContextMenuStrip = mnuAccMore;
 
         gridContainer.Controls.Add(_gridAccounts);
 
         _pnlAccounts.Controls.Add(gridContainer);
         _pnlAccounts.Controls.Add(toolbar);
-        _pnlAccounts.Controls.Add(header);
     }
     #endregion
 
@@ -2006,54 +2879,95 @@ public class MainForm : KryptonForm
 
         var header = CreatePageHeader("Stok Giriş & Çıkış Hareketleri", "Tarih bazlı ürün girişleri, satış çıkışları, iadeler ve zayiler");
 
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 65, Padding = new Padding(12, 12, 12, 12) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
 
-        _txtStockSearch.Width = 180;
+        // Sol: Filtreler (Dock Left)
+        var pnlLeftFilters = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Left,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
+
+        _txtStockSearch.Width = 175;
+        _txtStockSearch.Height = 32;
         _txtStockSearch.PlaceholderText = "🔍 Hareket Ara...";
+        _txtStockSearch.Font = UITheme.RegularFont;
         _txtStockSearch.TextChanged += (s, e) => RefreshStockMovements();
 
-        _cmbStockType.Width = 120;
-        _cmbStockType.Items.AddRange(new object[] { "Tümü", "Gelen", "Satılan", "İade Giriş", "Fire / Zayi", "Transfer Giriş", "Transfer Çıkış" });
+        _cmbStockType.Width = 110;
+        _cmbStockType.Height = 32;
+        _cmbStockType.Font = UITheme.RegularFont;
+        _cmbStockType.Items.Clear();
+        _cmbStockType.Items.AddRange(new object[] { "Tüm Türler", "Gelen", "Satılan", "İade Giriş", "Fire / Zayi", "Transfer Giriş", "Transfer Çıkış" });
         _cmbStockType.SelectedIndex = 0;
         _cmbStockType.SelectedIndexChanged += (s, e) => RefreshStockMovements();
 
-        _cmbStockWarehouse.Width = 140;
+        _cmbStockWarehouse.Width = 120;
+        _cmbStockWarehouse.Height = 32;
+        _cmbStockWarehouse.Font = UITheme.RegularFont;
         _cmbStockWarehouse.SelectedIndexChanged += (s, e) => RefreshStockMovements();
 
-        _dtpStockStart.Width = 100;
+        _dtpStockStart.Width = 95;
+        _dtpStockStart.Height = 32;
+        _dtpStockStart.Font = UITheme.RegularFont;
         _dtpStockStart.ValueChanged += (s, e) => RefreshStockMovements();
 
-        _dtpStockEnd.Width = 100;
+        _dtpStockEnd.Width = 95;
+        _dtpStockEnd.Height = 32;
+        _dtpStockEnd.Font = UITheme.RegularFont;
         _dtpStockEnd.ValueChanged += (s, e) => RefreshStockMovements();
 
-        var btnAdd = UITheme.CreateButton("+ Stok Hareketi", UITheme.Primary, Color.White, (s, e) => AddStock(), 130, 34);
-        var btnTransfer = UITheme.CreateButton("🔄 Depo Transferi", Color.FromArgb(13, 148, 136), Color.White, (s, e) => OpenWarehouseTransfer(), 145, 34);
-        var btnWarehouses = UITheme.CreateButton("🏢 Depolar / Şubeler", Color.FromArgb(79, 70, 229), Color.White, (s, e) => OpenWarehouseManage(), 155, 34);
-        var btnStockCount = UITheme.CreateButton("📋 Stok Sayımı", Color.FromArgb(13, 148, 136), Color.White, (s, e) => OpenStockCount(), 130, 34);
-        var btnBulkDelStock = UITheme.CreateButton("🗑️ Çoklu Sil", Color.FromArgb(220, 38, 38), Color.White, (s, e) => DeleteStockMovementsBulkAction(), 105, 34);
-        var btnDelete = UITheme.CreateButton("🗑️ Sil", UITheme.Danger, Color.White, (s, e) => DeleteStock(), 80, 34);
-        var btnExcelExp = UITheme.CreateButton("📊 Excel'e Aktar", UITheme.Success, Color.White, ExportStockToExcel, 130, 34);
-        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshStockMovements(), 40, 34);
+        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshStockMovements(), 36, 32);
 
-        var filterFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, AutoScroll = true, WrapContents = false };
-        filterFlow.Controls.Add(_txtStockSearch);
-        filterFlow.Controls.Add(_cmbStockType);
-        filterFlow.Controls.Add(_cmbStockWarehouse);
-        filterFlow.Controls.Add(_dtpStockStart);
-        filterFlow.Controls.Add(new Label { Text = "-", AutoSize = true, TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(0, 7, 0, 0) });
-        filterFlow.Controls.Add(_dtpStockEnd);
-        filterFlow.Controls.Add(btnAdd);
-        filterFlow.Controls.Add(btnTransfer);
-        filterFlow.Controls.Add(btnWarehouses);
-        filterFlow.Controls.Add(btnStockCount);
-        filterFlow.Controls.Add(btnBulkDelStock);
-        filterFlow.Controls.Add(btnDelete);
-        filterFlow.Controls.Add(btnExcelExp);
-        filterFlow.Controls.Add(btnRefresh);
+        pnlLeftFilters.Controls.Add(_txtStockSearch);
+        pnlLeftFilters.Controls.Add(_cmbStockType);
+        pnlLeftFilters.Controls.Add(_cmbStockWarehouse);
+        pnlLeftFilters.Controls.Add(_dtpStockStart);
+        pnlLeftFilters.Controls.Add(new Label { Text = "-", AutoSize = true, TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(0, 6, 0, 0) });
+        pnlLeftFilters.Controls.Add(_dtpStockEnd);
+        pnlLeftFilters.Controls.Add(btnRefresh);
 
-        toolbar.Controls.Add(filterFlow);
+        // Sağ: Aksiyon Butonları & Dropdown Menü (Dock Right)
+        var pnlRightActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
 
-        var gridContainer = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 15, 0, 0) };
+        var btnAdd = UITheme.CreateButton("➕ Stok Hareketi", UITheme.Primary, Color.White, (s, e) => AddStock(), 125, 32);
+        var btnTransfer = UITheme.CreateButton("🔄 Depo Transferi", Color.FromArgb(13, 148, 136), Color.White, (s, e) => OpenWarehouseTransfer(), 125, 32);
+
+        // İkincil İşlemler İçin Dropdown Menü
+        var mnuStockTools = new ContextMenuStrip();
+        mnuStockTools.Items.Add("🏢 Depolar & Şubeler Yönetimi", null, (s, e) => OpenWarehouseManage());
+        mnuStockTools.Items.Add("📋 Hızlı Stok Sayımı & Eşitleme", null, (s, e) => OpenStockCount());
+        mnuStockTools.Items.Add("📊 Excel'e Aktar", null, ExportStockToExcel);
+        mnuStockTools.Items.Add(new ToolStripSeparator());
+        mnuStockTools.Items.Add("🗑️ Seçili Hareketi Sil", null, (s, e) => DeleteStock());
+        mnuStockTools.Items.Add("🗑️ Çoklu Hareket Sil (Seçilenler)", null, (s, e) => DeleteStockMovementsBulkAction());
+
+        var btnTools = UITheme.CreateButton("⚙️ İşlemler ▾", Color.FromArgb(241, 245, 249), UITheme.TextPrimary, (s, e) =>
+        {
+            if (s is Control btn)
+            {
+                mnuStockTools.Show(btn, new Point(0, btn.Height));
+            }
+        }, 105, 32);
+
+        pnlRightActions.Controls.Add(btnAdd);
+        pnlRightActions.Controls.Add(btnTransfer);
+        pnlRightActions.Controls.Add(btnTools);
+
+        toolbar.Controls.Add(pnlLeftFilters);
+        toolbar.Controls.Add(pnlRightActions);
+
+        var gridContainer = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 0), Padding = new Padding(0) };
         UITheme.ApplyGridStyle(_gridStockMov);
         _gridStockMov.MultiSelect = true;
         _gridStockMov.CellDoubleClick += (s, e) =>
@@ -2107,46 +3021,78 @@ public class MainForm : KryptonForm
 
         var header = CreatePageHeader("Kasa & Finansal Yönetim", "Kasa/banka nakit akışı, fatura ödemeleri ve kısmi ödeme takibi");
 
-        var tabsFinance = new TabControl { Dock = DockStyle.Fill, Font = UITheme.TitleFont };
+        _tabsFinance.Dock = DockStyle.Fill;
+        _tabsFinance.Font = UITheme.TitleFont;
 
         // ==================== SEKME 1: KASA & FİNANSAL HAREKETLER ====================
         var tabAccMov = new TabPage("💵 Kasa & Nakit Hareketleri") { BackColor = Color.FromArgb(248, 250, 252) };
-        var toolbarAcc = new CardPanel { Dock = DockStyle.Top, Height = 65, Padding = new Padding(12) };
+        var toolbarAcc = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
 
-        _txtAccMovSearch.Width = 180;
+        // Sol: Filtreler (Dock Left)
+        var pnlLeftFiltersAcc = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Left,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
+
+        _txtAccMovSearch.Width = 175;
+        _txtAccMovSearch.Height = 32;
         _txtAccMovSearch.PlaceholderText = "🔍 İşlem Ara...";
+        _txtAccMovSearch.Font = UITheme.RegularFont;
         _txtAccMovSearch.TextChanged += (s, e) => RefreshAccountMovements();
 
-        _cmbAccMovType.Width = 120;
-        _cmbAccMovType.Items.AddRange(new object[] { "Tümü", "Tahsilat", "Ödeme", "Satış", "Alış" });
+        _cmbAccMovType.Width = 110;
+        _cmbAccMovType.Height = 32;
+        _cmbAccMovType.Font = UITheme.RegularFont;
+        _cmbAccMovType.Items.Clear();
+        _cmbAccMovType.Items.AddRange(new object[] { "Tüm İşlemler", "Tahsilat", "Ödeme", "Satış", "Alış" });
         _cmbAccMovType.SelectedIndex = 0;
         _cmbAccMovType.SelectedIndexChanged += (s, e) => RefreshAccountMovements();
 
-        _dtpAccStart.Width = 100;
+        _dtpAccStart.Width = 95;
+        _dtpAccStart.Height = 32;
+        _dtpAccStart.Font = UITheme.RegularFont;
         _dtpAccStart.ValueChanged += (s, e) => RefreshAccountMovements();
 
-        _dtpAccEnd.Width = 100;
+        _dtpAccEnd.Width = 95;
+        _dtpAccEnd.Height = 32;
+        _dtpAccEnd.Font = UITheme.RegularFont;
         _dtpAccEnd.ValueChanged += (s, e) => RefreshAccountMovements();
 
-        var btnAdd = UITheme.CreateButton("+ Finansal İşlem", UITheme.Primary, Color.White, (s, e) => AddAccountMovement(), 140, 34);
-        var btnDelete = UITheme.CreateButton("🗑️ Sil", UITheme.Danger, Color.White, (s, e) => DeleteAccountMovement(), 80, 34);
-        var btnExcelExp = UITheme.CreateButton("📊 Excel'e Aktar", UITheme.Success, Color.White, ExportAccMovToExcel, 130, 34);
-        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshAccountMovements(), 40, 34);
+        var btnRefreshAcc = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshAccountMovements(), 36, 32);
 
-        var filterFlowAcc = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
-        filterFlowAcc.Controls.Add(_txtAccMovSearch);
-        filterFlowAcc.Controls.Add(_cmbAccMovType);
-        filterFlowAcc.Controls.Add(_dtpAccStart);
-        filterFlowAcc.Controls.Add(new Label { Text = "-", AutoSize = true, TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(0, 7, 0, 0) });
-        filterFlowAcc.Controls.Add(_dtpAccEnd);
-        filterFlowAcc.Controls.Add(btnAdd);
-        filterFlowAcc.Controls.Add(btnDelete);
-        filterFlowAcc.Controls.Add(btnExcelExp);
-        filterFlowAcc.Controls.Add(btnRefresh);
+        pnlLeftFiltersAcc.Controls.Add(_txtAccMovSearch);
+        pnlLeftFiltersAcc.Controls.Add(_cmbAccMovType);
+        pnlLeftFiltersAcc.Controls.Add(_dtpAccStart);
+        pnlLeftFiltersAcc.Controls.Add(new Label { Text = "-", AutoSize = true, TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(0, 6, 0, 0) });
+        pnlLeftFiltersAcc.Controls.Add(_dtpAccEnd);
+        pnlLeftFiltersAcc.Controls.Add(btnRefreshAcc);
 
-        toolbarAcc.Controls.Add(filterFlowAcc);
+        // Sağ: Aksiyon Butonları (Dock Right)
+        var pnlRightActionsAcc = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
 
-        var gridContainerAcc = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 0) };
+        var btnAddAcc = UITheme.CreateButton("➕ Nakit / Kasa İşlemi", UITheme.Primary, Color.White, (s, e) => AddAccountMovement(), 150, 32);
+        var btnExcelExpAcc = UITheme.CreateButton("📊 Excel'e Aktar", UITheme.Success, Color.White, ExportAccMovToExcel, 115, 32);
+        var btnDeleteAcc = UITheme.CreateButton("🗑️ Sil", UITheme.Danger, Color.White, (s, e) => DeleteAccountMovement(), 75, 32);
+
+        pnlRightActionsAcc.Controls.Add(btnAddAcc);
+        pnlRightActionsAcc.Controls.Add(btnExcelExpAcc);
+        pnlRightActionsAcc.Controls.Add(btnDeleteAcc);
+
+        toolbarAcc.Controls.Add(pnlLeftFiltersAcc);
+        toolbarAcc.Controls.Add(pnlRightActionsAcc);
+
+        var gridContainerAcc = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 0), Padding = new Padding(0) };
         UITheme.ApplyGridStyle(_gridAccMov);
         gridContainerAcc.Controls.Add(_gridAccMov);
 
@@ -2155,57 +3101,134 @@ public class MainForm : KryptonForm
 
         // ==================== SEKME 2: FATURA & KISMİ ÖDEME TAKİBİ ====================
         var tabInvoices = new TabPage("🧾 Fatura & Kısmi Ödeme Takibi") { BackColor = Color.FromArgb(248, 250, 252) };
-        var toolbarInv = new CardPanel { Dock = DockStyle.Top, Height = 65, Padding = new Padding(12) };
+        var toolbarInv = new CardPanel { Dock = DockStyle.Top, Height = 84, Padding = new Padding(10, 6, 10, 6) };
 
-        _txtInvSearch.Width = 180;
+        // 1. SATIR: Hızlı Arama & Tür / Durum / Tarih Filtreleri
+        var rowFilters = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 34,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoScroll = false,
+            Margin = new Padding(0)
+        };
+
+        _txtInvSearch.Width = 160;
+        _txtInvSearch.Height = 28;
         _txtInvSearch.PlaceholderText = "🔍 Fatura No / Cari...";
+        _txtInvSearch.Font = UITheme.RegularFont;
         _txtInvSearch.TextChanged += (s, e) => RefreshInvoices();
 
-        _cmbInvType.Width = 140;
+        // Alış & Satış Ayrımı için Hızlı Segment Butonları
+        var btnFilterAll = UITheme.CreateButton("🌐 Tümü", UITheme.Primary, Color.White, null!, 70, 28);
+        btnFilterAll.Font = UITheme.RegularFont;
+        var btnFilterPurchase = UITheme.CreateButton("📥 Alış", Color.FromArgb(226, 232, 240), UITheme.TextPrimary, null!, 90, 28);
+        btnFilterPurchase.Font = UITheme.RegularFont;
+        var btnFilterSale = UITheme.CreateButton("📤 Satış", Color.FromArgb(226, 232, 240), UITheme.TextPrimary, null!, 90, 28);
+        btnFilterSale.Font = UITheme.RegularFont;
+
+        void SetInvoiceTypeFilter(string typeName)
+        {
+            btnFilterAll.BackColor = typeName == "Tüm Faturalar" ? UITheme.Primary : Color.FromArgb(226, 232, 240);
+            btnFilterAll.ForeColor = typeName == "Tüm Faturalar" ? Color.White : UITheme.TextPrimary;
+
+            btnFilterPurchase.BackColor = typeName == "Alış Faturası" ? Color.FromArgb(79, 70, 229) : Color.FromArgb(226, 232, 240);
+            btnFilterPurchase.ForeColor = typeName == "Alış Faturası" ? Color.White : UITheme.TextPrimary;
+
+            btnFilterSale.BackColor = typeName == "Satış Faturası" ? Color.FromArgb(16, 185, 129) : Color.FromArgb(226, 232, 240);
+            btnFilterSale.ForeColor = typeName == "Satış Faturası" ? Color.White : UITheme.TextPrimary;
+
+            _cmbInvType.SelectedItem = typeName;
+        }
+
+        btnFilterAll.Click += (s, e) => { SetInvoiceTypeFilter("Tüm Faturalar"); RefreshInvoices(); };
+        btnFilterPurchase.Click += (s, e) => { SetInvoiceTypeFilter("Alış Faturası"); RefreshInvoices(); };
+        btnFilterSale.Click += (s, e) => { SetInvoiceTypeFilter("Satış Faturası"); RefreshInvoices(); };
+
+        _cmbInvType.Visible = false;
         _cmbInvType.Items.Clear();
         _cmbInvType.Items.AddRange(new object[] { "Tüm Faturalar", "Alış Faturası", "Satış Faturası" });
         _cmbInvType.SelectedIndex = 0;
-        _cmbInvType.SelectedIndexChanged += (s, e) => RefreshInvoices();
 
-        _cmbInvStatus.Width = 130;
+        _cmbInvStatus.Width = 115;
+        _cmbInvStatus.Height = 28;
+        _cmbInvStatus.Font = UITheme.RegularFont;
         _cmbInvStatus.Items.Clear();
         _cmbInvStatus.Items.AddRange(new object[] { "Tüm Durumlar", "Ödenmedi", "Kısmi Ödendi", "Ödendi" });
         _cmbInvStatus.SelectedIndex = 0;
         _cmbInvStatus.SelectedIndexChanged += (s, e) => RefreshInvoices();
 
-        _dtpInvStart.Width = 100;
+        _dtpInvStart.Width = 90;
+        _dtpInvStart.Height = 28;
+        _dtpInvStart.Font = UITheme.RegularFont;
         _dtpInvStart.ValueChanged += (s, e) => RefreshInvoices();
 
-        _dtpInvEnd.Width = 100;
+        _dtpInvEnd.Width = 90;
+        _dtpInvEnd.Height = 28;
+        _dtpInvEnd.Font = UITheme.RegularFont;
         _dtpInvEnd.ValueChanged += (s, e) => RefreshInvoices();
 
-        var btnPayInv = UITheme.CreateButton("💳 Kısmi / Tam Ödeme Yap", UITheme.Success, Color.White, (s, e) => OpenInvoicePaymentDialogForSelected(), 185, 34);
-        var btnViewInvMeta = UITheme.CreateButton("📄 Fatura Kalemleri", Color.FromArgb(13, 148, 136), Color.White, (s, e) => OpenInvoiceMetaForSelectedInvoice(), 145, 34);
-        var btnExportInvExcel = UITheme.CreateButton("📊 Excel'e Aktar", Color.FromArgb(16, 185, 129), Color.White, ExportInvoicesToExcel, 130, 34);
-        var btnRefreshInv = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshInvoices(), 40, 34);
+        var btnRefreshInv = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshInvoices(), 34, 28);
 
-        var filterFlowInv = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
-        filterFlowInv.Controls.Add(_txtInvSearch);
-        filterFlowInv.Controls.Add(_cmbInvType);
-        filterFlowInv.Controls.Add(_cmbInvStatus);
-        filterFlowInv.Controls.Add(_dtpInvStart);
-        filterFlowInv.Controls.Add(new Label { Text = "-", AutoSize = true, TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(0, 7, 0, 0) });
-        filterFlowInv.Controls.Add(_dtpInvEnd);
-        filterFlowInv.Controls.Add(btnPayInv);
-        filterFlowInv.Controls.Add(btnViewInvMeta);
-        filterFlowInv.Controls.Add(btnExportInvExcel);
-        filterFlowInv.Controls.Add(btnRefreshInv);
+        rowFilters.Controls.Add(_txtInvSearch);
+        rowFilters.Controls.Add(btnFilterAll);
+        rowFilters.Controls.Add(btnFilterPurchase);
+        rowFilters.Controls.Add(btnFilterSale);
+        rowFilters.Controls.Add(new Label { Text = "|", ForeColor = Color.FromArgb(203, 213, 225), AutoSize = true, Margin = new Padding(2, 5, 2, 0) });
+        rowFilters.Controls.Add(_cmbInvStatus);
+        rowFilters.Controls.Add(_dtpInvStart);
+        rowFilters.Controls.Add(new Label { Text = "-", AutoSize = true, TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(0, 5, 0, 0) });
+        rowFilters.Controls.Add(_dtpInvEnd);
+        rowFilters.Controls.Add(btnRefreshInv);
 
-        toolbarInv.Controls.Add(filterFlowInv);
+        // 2. SATIR: Aksiyon & İşlem Butonları (Sağa yaslı, açılır menülü)
+        var rowActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 34,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            AutoScroll = false,
+            Margin = new Padding(0)
+        };
 
-        // Alt Toplamlar Paneli (Kullanıcının İstediği Dinamik Fatura Toplamı Göstergesi)
-        var pnlInvSummary = new CardPanel { Dock = DockStyle.Bottom, Height = 50, Padding = new Padding(15, 8, 15, 8) };
-        var flowInvSummary = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, AutoScroll = true };
+        var mnuInvTools = new ContextMenuStrip();
+        mnuInvTools.Items.Add("📄 Fatura Kalemleri & Detay", null, (s, e) => OpenInvoiceMetaForSelectedInvoice());
+        mnuInvTools.Items.Add("👁️ Orijinal PDF Belgesini Aç", null, (s, e) => OpenSelectedInvoicePdf());
+        mnuInvTools.Items.Add("📊 Excel'e Aktar", null, ExportInvoicesToExcel);
+        mnuInvTools.Items.Add(new ToolStripSeparator());
+        mnuInvTools.Items.Add("🧹 Mükerrer Faturaları Temizle", null, (s, e) => DeduplicateInvoicesClick());
+        mnuInvTools.Items.Add("🔙 Faturayı İptal Et / Geri Al", null, (s, e) => DeleteSelectedInvoiceClick());
 
-        _lblInvSummaryCount.Margin = new Padding(0, 5, 25, 0);
-        _lblInvSummaryTotal.Margin = new Padding(0, 5, 25, 0);
-        _lblInvSummaryPaid.Margin = new Padding(0, 5, 25, 0);
-        _lblInvSummaryRemaining.Margin = new Padding(0, 5, 0, 0);
+        var btnInvTools = UITheme.CreateButton("⚙️ İşlemler ▾", Color.FromArgb(241, 245, 249), UITheme.TextPrimary, (s, e) =>
+        {
+            if (s is Control btn)
+            {
+                mnuInvTools.Show(btn, new Point(0, btn.Height));
+            }
+        }, 105, 30);
+
+        var btnPayInv = UITheme.CreateButton("💳 Ödeme / Tahsilat", UITheme.Success, Color.White, (s, e) => OpenInvoicePaymentDialogForSelected(), 135, 30);
+        var btnBatchInvoice = UITheme.CreateButton("📂 Toplu PDF Yükle", Color.FromArgb(14, 116, 144), Color.White, (s, e) => OpenBatchInvoiceImportDialog(), 140, 30);
+        var btnNewInvoice = UITheme.CreateButton("➕ Yeni Alış Faturası", Color.FromArgb(79, 70, 229), Color.White, (s, e) => OpenInvoiceEntry(), 150, 30);
+
+        rowActions.Controls.Add(btnInvTools);
+        rowActions.Controls.Add(btnPayInv);
+        rowActions.Controls.Add(btnBatchInvoice);
+        rowActions.Controls.Add(btnNewInvoice);
+
+        toolbarInv.Controls.Add(rowActions);
+        toolbarInv.Controls.Add(rowFilters);
+
+        // Alt Toplamlar Paneli (Alış, Satış ve Ödeme Dengesi)
+        var pnlInvSummary = new CardPanel { Dock = DockStyle.Bottom, Height = 46, Padding = new Padding(15, 6, 15, 6) };
+        var flowInvSummary = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, AutoScroll = false, WrapContents = false };
+
+        _lblInvSummaryCount.Margin = new Padding(0, 6, 20, 0);
+        _lblInvSummaryTotal.Margin = new Padding(0, 6, 20, 0);
+        _lblInvSummaryPaid.Margin = new Padding(0, 6, 20, 0);
+        _lblInvSummaryRemaining.Margin = new Padding(0, 6, 0, 0);
 
         flowInvSummary.Controls.Add(_lblInvSummaryCount);
         flowInvSummary.Controls.Add(_lblInvSummaryTotal);
@@ -2213,23 +3236,81 @@ public class MainForm : KryptonForm
         flowInvSummary.Controls.Add(_lblInvSummaryRemaining);
         pnlInvSummary.Controls.Add(flowInvSummary);
 
-        // Fatura Tablosu
-        var gridContainerInv = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 10) };
+        // Fatura Tablosu (Ferah ve Geniş Grid)
+        var gridContainerInv = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 8, 0, 8) };
         UITheme.ApplyGridStyle(_gridInvoices);
-        _gridInvoices.CellDoubleClick += (s, e) => OpenInvoicePaymentDialogForSelected();
+        _gridInvoices.CellDoubleClick += (s, e) => OpenInvoiceMetaForSelectedInvoice();
+
+        // Alış ve Satış Faturalarını Görsel Olarak Ayırt Etme
+        _gridInvoices.CellFormatting += (s, e) =>
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+            var col = _gridInvoices.Columns[e.ColumnIndex];
+
+            if (col.Name == "Fatura Türü" && e.Value != null)
+            {
+                string val = e.Value.ToString() ?? "";
+                if (val.Contains("Alış"))
+                {
+                    e.Value = "📥 Alış Faturası";
+                    e.CellStyle.ForeColor = Color.FromArgb(67, 56, 202);
+                    e.CellStyle.Font = new Font(_gridInvoices.Font, FontStyle.Bold);
+                }
+                else if (val.Contains("Satış"))
+                {
+                    e.Value = "📤 Satış Faturası";
+                    e.CellStyle.ForeColor = Color.FromArgb(5, 150, 105);
+                    e.CellStyle.Font = new Font(_gridInvoices.Font, FontStyle.Bold);
+                }
+            }
+
+            if (col.Name == "Ödeme Durumu" && e.Value != null)
+            {
+                string val = e.Value.ToString() ?? "";
+                if (val == "Ödendi")
+                {
+                    e.CellStyle.ForeColor = Color.FromArgb(16, 185, 129);
+                    e.CellStyle.Font = new Font(_gridInvoices.Font, FontStyle.Bold);
+                }
+                else if (val == "Kısmi Ödendi")
+                {
+                    e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
+                    e.CellStyle.Font = new Font(_gridInvoices.Font, FontStyle.Bold);
+                }
+                else if (val == "Ödenmedi")
+                {
+                    e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
+                    e.CellStyle.Font = new Font(_gridInvoices.Font, FontStyle.Bold);
+                }
+            }
+        };
 
         var mnuInvoices = new ContextMenuStrip();
-        var itemPay = new ToolStripMenuItem("💳 Faturaya Kısmi / Tam Ödeme Yap", null, (s, e) => OpenInvoicePaymentDialogForSelected())
+        var itemMeta = new ToolStripMenuItem("📄 Fatura Detayı ve Kalemleri Gör", null, (s, e) => OpenInvoiceMetaForSelectedInvoice())
         {
             Font = new Font(UITheme.RegularFont, FontStyle.Bold),
-            ForeColor = UITheme.Success
-        };
-        var itemMeta = new ToolStripMenuItem("📄 Fatura Meta Bilgileri ve Ürün Kalemleri", null, (s, e) => OpenInvoiceMetaForSelectedInvoice())
-        {
             ForeColor = Color.FromArgb(13, 148, 136)
         };
-        mnuInvoices.Items.Add(itemPay);
+        var itemPdf = new ToolStripMenuItem("👁️ Orijinal PDF Belgesini Aç", null, (s, e) => OpenSelectedInvoicePdf())
+        {
+            ForeColor = UITheme.Secondary
+        };
+        var itemPay = new ToolStripMenuItem("💳 Faturaya Kısmi / Tam Ödeme Yap", null, (s, e) => OpenInvoicePaymentDialogForSelected())
+        {
+            ForeColor = UITheme.Success
+        };
+        var itemDel = new ToolStripMenuItem("🔙 Faturayı İptal Et / Geri Al (Stok ve Cariyi Sıfırla)", null, (s, e) => DeleteSelectedInvoiceClick())
+        {
+            Font = new Font(UITheme.RegularFont, FontStyle.Bold),
+            ForeColor = Color.FromArgb(220, 38, 38)
+        };
+
         mnuInvoices.Items.Add(itemMeta);
+        mnuInvoices.Items.Add(itemPdf);
+        mnuInvoices.Items.Add(new ToolStripSeparator());
+        mnuInvoices.Items.Add(itemPay);
+        mnuInvoices.Items.Add(new ToolStripSeparator());
+        mnuInvoices.Items.Add(itemDel);
         _gridInvoices.ContextMenuStrip = mnuInvoices;
 
         gridContainerInv.Controls.Add(_gridInvoices);
@@ -2237,6 +3318,7 @@ public class MainForm : KryptonForm
         tabInvoices.Controls.Add(gridContainerInv);
         tabInvoices.Controls.Add(pnlInvSummary);
         tabInvoices.Controls.Add(toolbarInv);
+        gridContainerInv.BringToFront();
 
         _tabsFinance.TabPages.Clear();
         _tabsFinance.TabPages.Add(tabAccMov);
@@ -2244,6 +3326,7 @@ public class MainForm : KryptonForm
 
         _pnlAccountMovements.Controls.Add(_tabsFinance);
         _pnlAccountMovements.Controls.Add(header);
+        _tabsFinance.BringToFront();
     }
     #endregion
 
@@ -2313,10 +3396,13 @@ public class MainForm : KryptonForm
             }
         }, 260, 36);
 
+        var btnReset = UITheme.CreateButton("⚠️ Fabrika Ayarlarına Sıfırla", Color.FromArgb(220, 38, 38), Color.White, (s, e) => ResetDatabaseAction(), 220, 36);
+
         dbButtons.Controls.Add(btnConfigSql);
         dbButtons.Controls.Add(btnBackup);
         dbButtons.Controls.Add(btnRestore);
         dbButtons.Controls.Add(btnMaint);
+        dbButtons.Controls.Add(btnReset);
 
         dbCard.Controls.Add(dbButtons);
         dbCard.Controls.Add(lblDbDesc);
@@ -2421,26 +3507,26 @@ public class MainForm : KryptonForm
         logCard.Controls.Add(lblLogTitle);
         flow.Controls.Add(logCard);
 
-        // 6. Telegram Botu & Cep Takip Kartı
-        var tgCard = new CardPanel { Width = 840, Height = 170, Margin = new Padding(0, 0, 0, 20) };
-        var lblTgTitle = new Label { Text = "🤖 Telegram Asistanı & Cep Telefonundan Canlı Takip", Font = UITheme.TitleFont, ForeColor = Color.FromArgb(20, 176, 186), Dock = DockStyle.Top, Height = 30 };
-        var lblTgDesc = new Label
+        // 6. WhatsApp Asistanı & Cep Takip Kartı
+        var waCard = new CardPanel { Width = 840, Height = 170, Margin = new Padding(0, 0, 0, 20) };
+        var lblWaTitle = new Label { Text = "💬 WhatsApp Asistanı & Cep Telefonundan Canlı Takip", Font = UITheme.TitleFont, ForeColor = Color.FromArgb(22, 101, 52), Dock = DockStyle.Top, Height = 30 };
+        var lblWaDesc = new Label
         {
-            Text = "Dükkanınızdaki güncel kasa durumunu, kritik stokları ve borçluları cep telefonunuzdan Telegram üzerinden anlık takip edin. Ayrıca telefon kameranızla ürünün barkod fotoğrafını göndererek anında stok ve fiyat sorgulayın.",
+            Text = "Güncel kasa durumunu, kritik stokları ve borçluları WhatsApp üzerinden takip edin; mobil portal ile telefonunuzdan stok ve fiyat sorgulayın.",
             Font = UITheme.RegularFont,
             ForeColor = UITheme.TextSecondary,
             Dock = DockStyle.Top,
             Height = 50
         };
 
-        var tgButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 45 };
-        var btnOpenTg = UITheme.CreateButton("🤖 Telegram Ayarları & Botu Başlat", Color.FromArgb(20, 176, 186), Color.White, (s, e) => OpenTelegramConfig(), 280, 36);
-        tgButtons.Controls.Add(btnOpenTg);
+        var waButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 45 };
+        var btnOpenWa = UITheme.CreateButton("💬 WhatsApp & Mobil Portal Ayarları", Color.FromArgb(22, 163, 74), Color.White, (s, e) => OpenWhatsAppAssistantDialog(), 300, 36);
+        waButtons.Controls.Add(btnOpenWa);
 
-        tgCard.Controls.Add(tgButtons);
-        tgCard.Controls.Add(lblTgDesc);
-        tgCard.Controls.Add(lblTgTitle);
-        flow.Controls.Add(tgCard);
+        waCard.Controls.Add(waButtons);
+        waCard.Controls.Add(lblWaDesc);
+        waCard.Controls.Add(lblWaTitle);
+        flow.Controls.Add(waCard);
 
         // 7. Görsel Tema & Palet Yöneticisi Kartı
         var themeCard = new CardPanel { Width = 840, Height = 175, Margin = new Padding(0, 0, 0, 20) };
@@ -2505,44 +3591,77 @@ public class MainForm : KryptonForm
 
         var header = CreatePageHeader("İşlem & Güvenlik Logları (Audit Trail)", "Silinen veya değiştirilen tüm cariler, hesap hareketleri ve ürün kayıtları");
 
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 65, Padding = new Padding(12, 12, 12, 12) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
 
-        _txtAuditSearch.Width = 180;
+        // Sol: Filtreler
+        var pnlLeftFilters = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Left,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
+
+        _txtAuditSearch.Width = 175;
+        _txtAuditSearch.Height = 32;
         _txtAuditSearch.PlaceholderText = "🔍 Loglarda Ara...";
+        _txtAuditSearch.Font = UITheme.RegularFont;
         _txtAuditSearch.TextChanged += (s, e) => RefreshAuditLogs();
 
-        _cmbAuditEntity.Width = 120;
-        _cmbAuditEntity.Items.AddRange(new object[] { "Tümü", "Kullanıcı", "Cari", "CariHareket", "Urun", "StokHareket", "Sistem" });
+        _cmbAuditEntity.Width = 110;
+        _cmbAuditEntity.Height = 32;
+        _cmbAuditEntity.Font = UITheme.RegularFont;
+        _cmbAuditEntity.Items.Clear();
+        _cmbAuditEntity.Items.AddRange(new object[] { "Tüm Varlıklar", "Kullanıcı", "Cari", "CariHareket", "Urun", "StokHareket", "Sistem" });
         _cmbAuditEntity.SelectedIndex = 0;
         _cmbAuditEntity.SelectedIndexChanged += (s, e) => RefreshAuditLogs();
 
-        _cmbAuditAction.Width = 140;
-        _cmbAuditAction.Items.AddRange(new object[] { "Tümü", "Giriş", "Güncelleme", "Silindi", "Silindi / Pasife Alındı", "Güncellendi", "Yeni Eklendi" });
+        _cmbAuditAction.Width = 120;
+        _cmbAuditAction.Height = 32;
+        _cmbAuditAction.Font = UITheme.RegularFont;
+        _cmbAuditAction.Items.Clear();
+        _cmbAuditAction.Items.AddRange(new object[] { "Tüm İşlemler", "Giriş", "Güncelleme", "Silindi", "Silindi / Pasife Alındı", "Güncellendi", "Yeni Eklendi" });
         _cmbAuditAction.SelectedIndex = 0;
         _cmbAuditAction.SelectedIndexChanged += (s, e) => RefreshAuditLogs();
 
-        _dtpAuditStart.Width = 100;
+        _dtpAuditStart.Width = 95;
+        _dtpAuditStart.Height = 32;
+        _dtpAuditStart.Font = UITheme.RegularFont;
         _dtpAuditStart.ValueChanged += (s, e) => RefreshAuditLogs();
 
-        _dtpAuditEnd.Width = 100;
+        _dtpAuditEnd.Width = 95;
+        _dtpAuditEnd.Height = 32;
+        _dtpAuditEnd.Font = UITheme.RegularFont;
         _dtpAuditEnd.ValueChanged += (s, e) => RefreshAuditLogs();
 
-        var btnExportExcel = UITheme.CreateButton("📊 Excel'e Aktar", UITheme.Success, Color.White, ExportAuditLogsToExcel, 130, 34);
-        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshAuditLogs(), 40, 34);
+        var btnRefresh = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshAuditLogs(), 36, 32);
 
-        var filterFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
-        filterFlow.Controls.Add(_txtAuditSearch);
-        filterFlow.Controls.Add(_cmbAuditEntity);
-        filterFlow.Controls.Add(_cmbAuditAction);
-        filterFlow.Controls.Add(_dtpAuditStart);
-        filterFlow.Controls.Add(new Label { Text = "-", AutoSize = true, TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(0, 7, 0, 0) });
-        filterFlow.Controls.Add(_dtpAuditEnd);
-        filterFlow.Controls.Add(btnExportExcel);
-        filterFlow.Controls.Add(btnRefresh);
+        pnlLeftFilters.Controls.Add(_txtAuditSearch);
+        pnlLeftFilters.Controls.Add(_cmbAuditEntity);
+        pnlLeftFilters.Controls.Add(_cmbAuditAction);
+        pnlLeftFilters.Controls.Add(_dtpAuditStart);
+        pnlLeftFilters.Controls.Add(new Label { Text = "-", AutoSize = true, TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(0, 6, 0, 0) });
+        pnlLeftFilters.Controls.Add(_dtpAuditEnd);
+        pnlLeftFilters.Controls.Add(btnRefresh);
 
-        toolbar.Controls.Add(filterFlow);
+        // Sağ: Aksiyon Butonu
+        var pnlRightActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
 
-        var gridContainer = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 15, 0, 0) };
+        var btnExportExcel = UITheme.CreateButton("📊 Excel'e Aktar", UITheme.Success, Color.White, ExportAuditLogsToExcel, 120, 32);
+        pnlRightActions.Controls.Add(btnExportExcel);
+
+        toolbar.Controls.Add(pnlLeftFilters);
+        toolbar.Controls.Add(pnlRightActions);
+
+        var gridContainer = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 0), Padding = new Padding(0) };
         UITheme.ApplyGridStyle(_gridAuditLogs);
         _gridAuditLogs.CellFormatting += GridAuditLogs_CellFormatting;
         gridContainer.Controls.Add(_gridAuditLogs);
@@ -2585,18 +3704,45 @@ public class MainForm : KryptonForm
 
         var header = CreatePageHeader("Kullanıcı & Yetkilendirme Yönetimi", "Sistem kullanıcılarını tanımlayın, rollerini belirleyin ve modül yetkilerini yönetin");
 
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 65, Padding = new Padding(12, 12, 12, 12) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
 
-        _txtUserSearch.Width = 220;
+        // Sol: Arama & Yenileme
+        var pnlLeftFilters = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Left,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
+
+        _txtUserSearch.Width = 200;
+        _txtUserSearch.Height = 32;
         _txtUserSearch.PlaceholderText = "🔍 Kullanıcı Ara...";
+        _txtUserSearch.Font = UITheme.RegularFont;
         _txtUserSearch.TextChanged += (s, e) => RefreshUsers();
 
-        var btnAddUser = UITheme.CreateButton("+ Yeni Kullanıcı Ekle", UITheme.Primary, Color.White, (s, e) =>
+        var btnRefreshUsers = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshUsers(), 36, 32);
+
+        pnlLeftFilters.Controls.Add(_txtUserSearch);
+        pnlLeftFilters.Controls.Add(btnRefreshUsers);
+
+        // Sağ: Aksiyon Butonları
+        var pnlRightActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent
+        };
+
+        var btnAddUser = UITheme.CreateButton("➕ Yeni Kullanıcı", UITheme.Primary, Color.White, (s, e) =>
         {
             using var dlg = new UserEditDialog(0);
             if (dlg.ShowDialog(this) == DialogResult.OK)
                 RefreshUsers();
-        }, 160, 34);
+        }, 130, 32);
 
         var btnEditUser = UITheme.CreateButton("✏️ Düzenle", UITheme.Secondary, Color.White, (s, e) =>
         {
@@ -2609,10 +3755,17 @@ public class MainForm : KryptonForm
             using var dlg = new UserEditDialog(id);
             if (dlg.ShowDialog(this) == DialogResult.OK)
                 RefreshUsers();
-        }, 110, 34);
+        }, 95, 32);
 
         var btnDeleteUser = UITheme.CreateButton("🗑️ Sil", UITheme.Danger, Color.White, (s, e) =>
         {
+            var curUser = UserService.CurrentUser;
+            if (curUser != null && !curUser.HasPermission(UserPermissions.Users) && !curUser.IsSuperUser)
+            {
+                MessageBox.Show("Kullanıcı silme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             if (_gridUsers.SelectedRows.Count == 0)
             {
                 MessageBox.Show("Lütfen silmek istediğiniz kullanıcıyı seçin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -2634,19 +3787,16 @@ public class MainForm : KryptonForm
                     MessageBox.Show(res.Message, "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             }
-        }, 90, 34);
+        }, 80, 32);
 
-        var btnRefreshUsers = UITheme.CreateButton("🔄", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshUsers(), 40, 34);
+        pnlRightActions.Controls.Add(btnAddUser);
+        pnlRightActions.Controls.Add(btnEditUser);
+        pnlRightActions.Controls.Add(btnDeleteUser);
 
-        var toolFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
-        toolFlow.Controls.Add(_txtUserSearch);
-        toolFlow.Controls.Add(btnAddUser);
-        toolFlow.Controls.Add(btnEditUser);
-        toolFlow.Controls.Add(btnDeleteUser);
-        toolFlow.Controls.Add(btnRefreshUsers);
-        toolbar.Controls.Add(toolFlow);
+        toolbar.Controls.Add(pnlLeftFilters);
+        toolbar.Controls.Add(pnlRightActions);
 
-        var gridContainer = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 15, 0, 0) };
+        var gridContainer = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 0), Padding = new Padding(0) };
         UITheme.ApplyGridStyle(_gridUsers);
         _gridUsers.DoubleClick += (s, e) =>
         {
@@ -2911,12 +4061,9 @@ public class MainForm : KryptonForm
 
     private Panel CreatePageHeader(string title, string subtitle)
     {
-        var p = new Panel { Dock = DockStyle.Top, Height = 70, Padding = new Padding(0, 0, 0, 15) };
-        var lblT = new Label { Text = title, Font = UITheme.HeaderFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 30 };
-        var lblS = new Label { Text = subtitle, Font = UITheme.RegularFont, ForeColor = UITheme.TextSecondary, Dock = DockStyle.Top, Height = 20 };
-        p.Controls.Add(lblS);
-        p.Controls.Add(lblT);
-        return p;
+        // Artık üst SaaS Header'da dinamik başlık (_lblPageTitle, _lblPageSubTitle) yer aldığı için
+        // sayfa içi çift başlık kapatılarak veri tablolarına dikeyde 70px ekstra alan kazandırılmıştır.
+        return new Panel { Dock = DockStyle.Top, Height = 0, Visible = false };
     }
 
     #region Veri Yenileme (Refresh)
@@ -3203,40 +4350,81 @@ public class MainForm : KryptonForm
             if (_gridInvoices.Columns["AccountId"] is { } colAccId) colAccId.Visible = false;
             if (_gridInvoices.Columns["WarehouseId"] is { } colWId) colWId.Visible = false;
 
+            if (_gridInvoices.Columns["Fatura No"] is { } cNo) { cNo.Width = 140; }
+            if (_gridInvoices.Columns["Tarih"] is { } cDate) { cDate.Width = 95; }
+            if (_gridInvoices.Columns["Fatura Türü"] is { } cType) { cType.Width = 135; }
+            if (_gridInvoices.Columns["Cari Ünvanı"] is { } cAcc) { cAcc.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill; }
+
             if (_gridInvoices.Columns["Fatura Tutarı"] is { } cGrand)
             {
+                cGrand.Width = 115;
                 cGrand.DefaultCellStyle.Format = "N2";
                 cGrand.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
             }
             if (_gridInvoices.Columns["Ödenen Tutar"] is { } cPaid)
             {
+                cPaid.Width = 105;
                 cPaid.DefaultCellStyle.Format = "N2";
                 cPaid.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
             }
             if (_gridInvoices.Columns["Kalan Tutar"] is { } cRem)
             {
+                cRem.Width = 105;
                 cRem.DefaultCellStyle.Format = "N2";
                 cRem.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
             }
+            if (_gridInvoices.Columns["Ödeme Durumu"] is { } cStatus) { cStatus.Width = 110; }
+            if (_gridInvoices.Columns["Depo / Şube"] is { } cDepo) { cDepo.Width = 120; }
 
-            // Alt Toplamları Hesapla (Fatura tipine göre dinamik toplam göstergesi)
+            // Alt Toplamları Hesapla: Alış ve Satış toplamlarını ayrı ayrı topla!
             int count = dt.Rows.Count;
-            double totalGrand = 0;
+            int purchaseCount = 0;
+            int saleCount = 0;
+            double purchaseGrand = 0;
+            double saleGrand = 0;
             double totalPaid = 0;
             double totalRemaining = 0;
 
             foreach (DataRow r in dt.Rows)
             {
-                totalGrand += Convert.ToDouble(r["Fatura Tutarı"]);
-                totalPaid += Convert.ToDouble(r["Ödenen Tutar"]);
-                totalRemaining += Convert.ToDouble(r["Kalan Tutar"]);
+                string invType = r["Fatura Türü"]?.ToString() ?? "";
+                double g = Convert.ToDouble(r["Fatura Tutarı"]);
+                double p = Convert.ToDouble(r["Ödenen Tutar"]);
+                double rem = Convert.ToDouble(r["Kalan Tutar"]);
+
+                if (invType.Contains("Alış"))
+                {
+                    purchaseCount++;
+                    purchaseGrand += g;
+                }
+                else
+                {
+                    saleCount++;
+                    saleGrand += g;
+                }
+                totalPaid += p;
+                totalRemaining += rem;
             }
 
             string typeLabel = _cmbInvType.SelectedItem?.ToString() ?? "Tüm Faturalar";
-            _lblInvSummaryCount.Text = $"📋 {typeLabel}: {count} Adet";
-            _lblInvSummaryTotal.Text = $"💰 Toplam Fatura: {totalGrand:N2} ₺";
-            _lblInvSummaryPaid.Text = $"✅ Toplam Ödenen: {totalPaid:N2} ₺";
-            _lblInvSummaryRemaining.Text = $"⚠️ Kalan Borç / Bakiye: {totalRemaining:N2} ₺";
+            if (typeLabel == "Alış Faturası")
+            {
+                _lblInvSummaryCount.Text = $"📥 Alış Faturaları: {purchaseCount} Adet";
+                _lblInvSummaryTotal.Text = $"💰 Toplam Alış: {purchaseGrand:N2} ₺";
+            }
+            else if (typeLabel == "Satış Faturası")
+            {
+                _lblInvSummaryCount.Text = $"📤 Satış Faturaları: {saleCount} Adet";
+                _lblInvSummaryTotal.Text = $"💰 Toplam Satış: {saleGrand:N2} ₺";
+            }
+            else
+            {
+                _lblInvSummaryCount.Text = $"📋 Toplam {count} Fatura ({purchaseCount} Alış, {saleCount} Satış)";
+                _lblInvSummaryTotal.Text = $"📥 Alış: {purchaseGrand:N2} ₺   |   📤 Satış: {saleGrand:N2} ₺";
+            }
+
+            _lblInvSummaryPaid.Text = $"✅ Ödenen: {totalPaid:N2} ₺";
+            _lblInvSummaryRemaining.Text = $"⚠️ Kalan Bakiye: {totalRemaining:N2} ₺";
         }
         catch { }
     }
@@ -3280,20 +4468,109 @@ public class MainForm : KryptonForm
         }
 
         long invId = Convert.ToInt64(_gridInvoices.CurrentRow.Cells["Id"].Value);
-        string invNo = _gridInvoices.CurrentRow.Cells["Fatura No"].Value?.ToString() ?? "";
+        using var dlg = new InvoiceMetaDialog(invId);
+        dlg.ShowDialog(this);
+    }
 
-        // Faturadaki ilk ürünün ID'sini bularak InvoiceMetaDialog aç
-        var dtItems = InvoiceService.GetInvoiceItems(invId);
-        long pid = 0;
-        string pName = $"Fatura: {invNo}";
-        if (dtItems.Rows.Count > 0 && dtItems.Columns.Contains("ProductId") && dtItems.Rows[0]["ProductId"] != DBNull.Value)
+    private void OpenSelectedInvoicePdf()
+    {
+        if (_gridInvoices.CurrentRow == null || !_gridInvoices.Columns.Contains("Id"))
         {
-            pid = Convert.ToInt64(dtItems.Rows[0]["ProductId"]);
-            pName = dtItems.Rows[0]["ItemName"]?.ToString() ?? pName;
+            MessageBox.Show("Lütfen PDF belgesini açmak istediğiniz faturayı seçiniz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
         }
 
-        using var dlg = new InvoiceMetaDialog(pid, pName);
-        dlg.ShowDialog(this);
+        long invId = Convert.ToInt64(_gridInvoices.CurrentRow.Cells["Id"].Value);
+        if (!InvoiceService.OpenInvoicePdfById(invId))
+        {
+            MessageBox.Show("Bu faturaya ait PDF belgesi veritabanında veya arşivde bulunamadı.", "PDF Bulunamadı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
+    private void DeduplicateInvoicesClick()
+    {
+        var ask = MessageBox.Show(
+            "Sistemdeki mükerrer (çift yüklenmiş) faturalar taranacak ve aynı fatura numarasına ait fazlalık kopyalar temizlenecektir.\n\n" +
+            "Her faturanın en dolu ve en güncel ana kaydı korunacaktır.\n\n" +
+            "Mükerrer fatura temizliğini başlatmak istiyor musunuz?",
+            "Mükerrer Faturaları Temizle",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question
+        );
+
+        if (ask == DialogResult.Yes)
+        {
+            var (removed, uniqueCount) = InvoiceService.DeduplicateInvoices();
+            RefreshInvoices();
+            if (removed > 0)
+            {
+                MessageBox.Show(
+                    $"İşlem tamamlandı!\n\n" +
+                    $"• {removed} adet mükerrer fatura kaydı başarıyla silindi.\n" +
+                    $"• Kalan tekil gerçek fatura sayısı: {uniqueCount} Adet",
+                    "Temizleme Başarılı",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
+                );
+            }
+            else
+            {
+                MessageBox.Show("Sistemde mükerrer (çift) fatura kaydı bulunamadı. Tüm faturalarınız zaten tekildir.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+    }
+
+    private void DeleteSelectedInvoiceClick()
+    {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.InvoicesDelete))
+        {
+            MessageBox.Show("Faturayı iptal etme / geri alma yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_gridInvoices.CurrentRow == null || !_gridInvoices.Columns.Contains("Id"))
+        {
+            MessageBox.Show("Lütfen iptal etmek / geri almak istediğiniz faturayı seçiniz.", "Fatura Seçilmedi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        long invId = Convert.ToInt64(_gridInvoices.CurrentRow.Cells["Id"].Value);
+        string invNo = _gridInvoices.CurrentRow.Cells["Fatura No"].Value?.ToString() ?? "";
+        string accName = _gridInvoices.Columns.Contains("Cari Ünvanı") ? _gridInvoices.CurrentRow.Cells["Cari Ünvanı"].Value?.ToString() ?? "" : "";
+        double grandTotal = _gridInvoices.Columns.Contains("Fatura Tutarı") ? Convert.ToDouble(_gridInvoices.CurrentRow.Cells["Fatura Tutarı"].Value) : 0;
+
+        var ask = MessageBox.Show(
+            $"⚠️ FATURAYI İPTAL ETME & GERİ ALMA (ROLLBACK) ONAYI\n\n" +
+            $"• Fatura No: {invNo}\n" +
+            $"• Tedarikçi/Cari: {accName}\n" +
+            $"• Toplam Tutar: {grandTotal:N2} ₺\n\n" +
+            $"Bu işlem onaylandığında:\n" +
+            $"1. Faturanın depoya soktuğu tüm ürün stok hareketleri silinir (ürün stok miktarları faturadan önceki eski haline döner).\n" +
+            $"2. Tedarikçi cari hesabına işlenen borç kaydı silinir (cari hesap bakiyesi faturadan önceki haline döner).\n" +
+            $"3. Fatura ve tüm kalemleri iptal edilir.\n\n" +
+            $"Bu faturayı tüm hareketleriyle birlikte geri almak ve iptal etmek istediğinizden emin misiniz?",
+            "Faturayı İptal Et ve Geri Al (Ters Kayıt)",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning
+        );
+
+        if (ask == DialogResult.Yes)
+        {
+            var result = InvoiceService.CancelAndRollbackInvoice(invId, rollbackMovements: true);
+            if (result.Success)
+            {
+                RefreshInvoices();
+                RefreshStockMovements();
+                RefreshAccountMovements();
+                RefreshDashboard();
+                MessageBox.Show(result.Message, "Fatura Başarıyla Geri Alındı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show(result.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
     }
 
     private void RefreshAuditLogs()
@@ -3340,7 +4617,10 @@ public class MainForm : KryptonForm
             return;
         }
 
-        using var f = new QuickSaleDialog(operation, productId);
+        using Form f = operation == "Alış"
+            ? new QuickPurchaseDialog(productId)
+            : new QuickSaleDialog(operation, productId);
+
         if (f.ShowDialog() == DialogResult.OK)
         {
             RefreshAll();
@@ -3349,12 +4629,24 @@ public class MainForm : KryptonForm
 
     private void AddProduct()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.ProductsCreate) && !curUser.HasPermission(UserPermissions.Products))
+        {
+            MessageBox.Show("Yeni ürün ekleme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         using var f = new ProductForm();
         if (f.ShowDialog() == DialogResult.OK) RefreshAll();
     }
 
     private void EditProduct()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.ProductsEdit) && !curUser.HasPermission(UserPermissions.Products))
+        {
+            MessageBox.Show("Ürün düzenleme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         long id = GetSelectedId(_gridProducts);
         if (id < 0)
         {
@@ -3367,6 +4659,12 @@ public class MainForm : KryptonForm
 
     private void DeleteProduct()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.ProductsDelete))
+        {
+            MessageBox.Show("Ürün silme / çıkarma yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         long id = GetSelectedId(_gridProducts);
         if (id < 0) return;
         var prod = ProductService.GetById(id);
@@ -3387,9 +4685,9 @@ public class MainForm : KryptonForm
     private void OpenFastProductEntry()
     {
         var curUser = UserService.CurrentUser;
-        if (curUser != null && !curUser.HasPermission(UserPermissions.Products))
+        if (curUser != null && !curUser.HasPermission(UserPermissions.ProductsCreate) && !curUser.HasPermission(UserPermissions.Products))
         {
-            MessageBox.Show("Ürün tanımlama yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Hızlı ürün tanımlama yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -3415,9 +4713,9 @@ public class MainForm : KryptonForm
     private void DeleteProductsBulkAction()
     {
         var curUser = UserService.CurrentUser;
-        if (curUser != null && !curUser.HasPermission(UserPermissions.Products))
+        if (curUser != null && !curUser.HasPermission(UserPermissions.ProductsDelete))
         {
-            MessageBox.Show("Ürün silme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Toplu ürün silme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -3468,7 +4766,7 @@ public class MainForm : KryptonForm
     private void DeleteStockMovementsBulkAction()
     {
         var curUser = UserService.CurrentUser;
-        if (curUser != null && !curUser.HasPermission(UserPermissions.StockMovements))
+        if (curUser != null && !curUser.HasPermission(UserPermissions.StockMovementsDelete))
         {
             MessageBox.Show("Stok hareketi silme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
@@ -3522,9 +4820,9 @@ public class MainForm : KryptonForm
     private void DeleteAccountsBulkAction()
     {
         var curUser = UserService.CurrentUser;
-        if (curUser != null && !curUser.HasPermission(UserPermissions.Accounts))
+        if (curUser != null && !curUser.HasPermission(UserPermissions.AccountsDelete))
         {
-            MessageBox.Show("Cari silme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Cari silme / çıkarma yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -3677,12 +4975,24 @@ public class MainForm : KryptonForm
 
     private void AddAccount()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.AccountsCreate) && !curUser.HasPermission(UserPermissions.Accounts))
+        {
+            MessageBox.Show("Yeni cari hesap ekleme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         using var f = new AccountForm();
         if (f.ShowDialog() == DialogResult.OK) RefreshAll();
     }
 
     private void EditAccount()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.AccountsEdit) && !curUser.HasPermission(UserPermissions.Accounts))
+        {
+            MessageBox.Show("Cari hesap bilgilerini düzenleme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         long id = GetSelectedId(_gridAccounts);
         if (id < 0)
         {
@@ -3695,6 +5005,12 @@ public class MainForm : KryptonForm
 
     private void DeleteAccount()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.AccountsDelete))
+        {
+            MessageBox.Show("Cari hesap silme / çıkarma yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         long id = GetSelectedId(_gridAccounts);
         if (id < 0) return;
         var acc = AccountService.GetById(id);
@@ -3714,6 +5030,12 @@ public class MainForm : KryptonForm
 
     private void ViewAccountStatement()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.AccountStatement) && !curUser.HasPermission(UserPermissions.Accounts))
+        {
+            MessageBox.Show("Cari hesap ekstresini görüntüleme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         long id = GetSelectedId(_gridAccounts);
         if (id < 0)
         {
@@ -3727,6 +5049,26 @@ public class MainForm : KryptonForm
 
     private void AddAccountMovementForSelected(string? explicitType = null)
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null)
+        {
+            if (explicitType == "Tahsilat" && !curUser.HasPermission(UserPermissions.FinanceCollect) && !curUser.HasPermission(UserPermissions.AccountMovements))
+            {
+                MessageBox.Show("Tahsilat işlemi yapma yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (explicitType == "Ödeme" && !curUser.HasPermission(UserPermissions.FinancePay) && !curUser.HasPermission(UserPermissions.AccountMovements))
+            {
+                MessageBox.Show("Ödeme işlemi yapma yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (explicitType == "Borç" && !curUser.HasPermission(UserPermissions.FinanceDebt) && !curUser.HasPermission(UserPermissions.AccountMovements))
+            {
+                MessageBox.Show("Borç kaydı girme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+        }
+
         long id = GetSelectedId(_gridAccounts);
         if (id < 0)
         {
@@ -3885,21 +5227,45 @@ public class MainForm : KryptonForm
         }
     }
 
-    private void OpenTelegramConfig()
+    private void OpenBatchInvoiceImportDialog()
     {
         var curUser = UserService.CurrentUser;
-        if (curUser != null && !curUser.HasPermission(UserPermissions.Telegram) && !curUser.IsSuperUser)
+        if (curUser != null && !curUser.HasPermission(UserPermissions.InvoicesBatchImport) && !curUser.HasPermission(UserPermissions.InvoiceEntry))
         {
-            MessageBox.Show("Telegram asistanı yapılandırma modülüne erişim yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Toplu PDF Fatura içe aktarma modülüne erişim yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        using var dlg = new TelegramConfigDialog();
+        using var dlg = new BatchInvoiceImportDialog();
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+        {
+            RefreshAll();
+            RefreshInvoices();
+        }
+    }
+
+    private void OpenWhatsAppAssistantDialog()
+    {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.WhatsAppPortal) && !curUser.IsSuperUser)
+        {
+            MessageBox.Show("WhatsApp ve online mobil portal asistanına erişim yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        using var dlg = new WhatsAppAssistantDialog();
         dlg.ShowDialog(this);
     }
 
     private void DeleteStock()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.StockMovementsDelete))
+        {
+            MessageBox.Show("Stok hareketi silme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         long id = GetSelectedId(_gridStockMov);
         if (id < 0) return;
         var dt = Database.Query(@"
@@ -3926,12 +5292,25 @@ WHERE sm.Id = $id", ("$id", id));
 
     private void AddAccountMovement()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.AccountMovements) && !curUser.HasPermission(UserPermissions.FinanceCollect) && !curUser.HasPermission(UserPermissions.FinancePay))
+        {
+            MessageBox.Show("Finansal hareket ekleme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         using var f = new AccountMovementForm();
         if (f.ShowDialog() == DialogResult.OK) RefreshAll();
     }
 
     private void DeleteAccountMovement()
     {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.HasPermission(UserPermissions.FinanceDeleteMovement))
+        {
+            MessageBox.Show("Finansal hareket silme / çıkarma yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         long id = GetSelectedId(_gridAccMov);
         if (id < 0) return;
         var dt = Database.Query(@"
@@ -4068,6 +5447,62 @@ WHERE m.Id = $id", ("$id", id));
                     MessageBox.Show($"Geri yükleme sırasında hata: {ex.Message}", "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
+        }
+    }
+
+    private void ResetDatabaseAction()
+    {
+        var curUser = UserService.CurrentUser;
+        if (curUser != null && !curUser.IsSuperUser && !curUser.Role.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show("Veritabanını sıfırlama işlemi için Süper Yönetici veya Admin yetkisi gereklidir.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var ask1 = MessageBox.Show(
+            "⚠️ DİKKAT: Veritabanındaki TÜM FATURALAR, STOK HAREKETLERİ, ÜRÜN KARTLARI, CARİ HESAPLAR VE KASA İŞLEMLERİ KALICI OLARAK SİLİNECEKTİR!\n\n" +
+            "Tüm ID numaraları 1'den başlayacak şekilde sıfırlanacaktır.\n\n" +
+            "Bu işlem geri alınamaz! Devam etmek istiyor musunuz?",
+            "TÜM VERİLERİ SIFIRLAMA ONAYI (1/2)",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2
+        );
+        if (ask1 != DialogResult.Yes) return;
+
+        var ask2 = MessageBox.Show(
+            "SON ONAY: Gerçekten tüm verileri silip sistemi fabrika ayarlarına döndürmek istediğinize emin misiniz?",
+            "SON ONAY (2/2)",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Stop,
+            MessageBoxDefaultButton.Button2
+        );
+        if (ask2 != DialogResult.Yes) return;
+
+        Cursor = Cursors.WaitCursor;
+        try
+        {
+            Database.ResetAllDataAndReseed();
+            MessageBox.Show(
+                "Veritabanı başarıyla sıfırlandı!\n\n" +
+                "• Tüm fatura, ürün, cari ve kasa kayıtları silindi.\n" +
+                "• Tüm ID sayaçları 1'e çekildi.\n" +
+                "• Varsayılan kullanıcı: admin (Şifre: 123456)\n" +
+                "• Varsayılan depo: Merkez Depo (ID: 1)\n\n" +
+                "Artık sıfırdan veri girişine başlayabilirsiniz.",
+                "Fabrika Ayarlarına Dönüldü",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            );
+            RefreshAll();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Sıfırlama sırasında hata oluştu: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
         }
     }
 

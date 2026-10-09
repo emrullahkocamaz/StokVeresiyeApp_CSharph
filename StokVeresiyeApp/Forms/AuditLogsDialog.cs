@@ -104,6 +104,7 @@ public class AuditLogsDialog : Form
         Controls.Add(gridContainer);
         Controls.Add(toolbar);
         Controls.Add(header);
+        gridContainer.BringToFront();
         header.SendToBack();
         toolbar.SendToBack();
     }

@@ -183,7 +183,7 @@ public class LoginForm : KryptonForm
         // Alt Rozet (Güvenlik & Sürüm)
         var lblSecurity = new Label
         {
-            Text = "● 256-Bit Güvenli Oturum  •  v2.5",
+            Text = "● 256-Bit Güvenli Oturum  •  v2.6",
             Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
             ForeColor = Color.FromArgb(52, 211, 153),
             Dock = DockStyle.Fill,
@@ -299,7 +299,7 @@ public class LoginForm : KryptonForm
         _txtPassword.StateCommon.Border.Color1 = Color.FromArgb(203, 213, 225);
         _txtPassword.StateCommon.Content.Font = new Font("Segoe UI", 10f);
         _txtPassword.StateCommon.Content.Padding = new Padding(8, 6, 8, 6);
-        _txtPassword.CueHint.CueHintText = "Şifrenizi girin";
+        _txtPassword.CueHint.CueHintText = "Şifrenizi girin (Varsayılan: 123456)";
         _txtPassword.CueHint.Color1 = Color.FromArgb(148, 163, 184);
         rightTable.Controls.Add(_txtPassword, 0, 6);
 

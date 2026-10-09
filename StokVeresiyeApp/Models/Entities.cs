@@ -173,6 +173,8 @@ public class InvoiceItem
     public double LineTotal { get; set; }
     public string? ExpiryDate { get; set; }
     public string? BatchNumber { get; set; }
+    public string? ActionDecision { get; set; } // "Alış Fiyatını Güncelle", "Satış Fiyatına Zam Yap", "Olduğu Gibi Ekle", "Faturadan Sil"
+    public double? NewSalePrice { get; set; }
 }
 
 public class ProductPriceHistory

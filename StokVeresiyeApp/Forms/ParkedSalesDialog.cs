@@ -9,7 +9,7 @@ public class ParkedSalesDialog : BaseModernForm
     private readonly ListBox _lstParked = new();
     public ParkedSaleModel? SelectedParkedSale { get; private set; }
 
-    public ParkedSalesDialog() : base("📂 Bekleyen / Askıdaki Fişler", 620, 480)
+    public ParkedSalesDialog() : base("📂 Bekleyen / Askıdaki Fişler (Masa & Plaka Takibi)", 750, 520)
     {
         _lstParked.Dock = DockStyle.Fill;
         _lstParked.Font = new Font("Segoe UI", 10.5f);
@@ -34,6 +34,13 @@ public class ParkedSalesDialog : BaseModernForm
 
         var btnDelete = UITheme.CreateButton("🗑️ Fişi Sil", Color.FromArgb(239, 68, 68), Color.White, (s, e) =>
         {
+            var curUser = UserService.CurrentUser;
+            if (curUser != null && !curUser.HasPermission(UserPermissions.ParkedSales) && !curUser.HasPermission(UserPermissions.QuickSale) && !curUser.IsSuperUser)
+            {
+                MessageBox.Show("Askıdaki fişi silme yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             if (_lstParked.SelectedItem is ParkedSaleModel p)
             {
                 if (MessageBox.Show($"'{p.DisplayText}' fişini silmek istediğinize emin misiniz?", "Fişi Sil", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)

@@ -13,10 +13,12 @@ public class BaseModernForm : KryptonForm
     {
         Text = title;
         ClientSize = new Size(width, height);
+        MinimumSize = new Size(900, 620);
+        MaximumSize = new Size(Screen.PrimaryScreen?.WorkingArea.Width ?? width, Screen.PrimaryScreen?.WorkingArea.Height ?? height);
         StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
+        MinimizeBox = true;
         BackColor = UITheme.Background;
         Font = UITheme.RegularFont;
         Icon = AppResources.AppIcon;
@@ -63,6 +65,7 @@ public class BaseModernForm : KryptonForm
         // 3. Orta Kaydırılabilir İçerik Alanı (Asla tabana taşmaz, butonları örtmez)
         var scrollContainer = new Panel
         {
+            Name = "bodyPanel",
             Dock = DockStyle.Fill,
             AutoScroll = true,
             Padding = new Padding(20, 15, 20, 15)
@@ -81,12 +84,13 @@ public class BaseModernForm : KryptonForm
         scrollContainer.Controls.Add(ContentTable);
 
         // Doğru Docking Sırası:
-        // Önce Fill olan scrollContainer, sonra Bottom, sonra Top eklenir ve Top/Bottom SendToBack yapılır.
+        // Arka plan katmanları önce, içerik alanı en üstte olacak şekilde set edilir.
         Controls.Add(scrollContainer);
         Controls.Add(bottomPanel);
         Controls.Add(headerPanel);
-        headerPanel.SendToBack();
-        bottomPanel.SendToBack();
+        Controls.SetChildIndex(headerPanel, 0);
+        Controls.SetChildIndex(bottomPanel, 1);
+        Controls.SetChildIndex(scrollContainer, 2);
 
         AcceptButton = BtnSave;
         CancelButton = BtnCancel;
@@ -95,7 +99,12 @@ public class BaseModernForm : KryptonForm
     protected void AddRow(string label, Control control, int rowHeight = 38)
     {
         int row = ContentTable.RowCount++;
-        ContentTable.RowStyles.Add(new RowStyle(SizeType.Absolute, rowHeight));
+
+        control.Dock = DockStyle.Fill;
+        control.Font = UITheme.RegularFont;
+
+        int effectiveRowHeight = Math.Max(rowHeight, Math.Max(control.Height, 28) + 8);
+        ContentTable.RowStyles.Add(new RowStyle(SizeType.Absolute, effectiveRowHeight));
 
         var lbl = new Label
         {
@@ -106,9 +115,6 @@ public class BaseModernForm : KryptonForm
             Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
             ForeColor = UITheme.TextSecondary
         };
-
-        control.Dock = DockStyle.Fill;
-        control.Font = UITheme.RegularFont;
 
         ContentTable.Controls.Add(lbl, 0, row);
         ContentTable.Controls.Add(control, 1, row);
@@ -149,7 +155,8 @@ public class BaseModernForm : KryptonForm
             int minHeight = 350;
 
             int finalHeight = Math.Clamp(neededHeight, minHeight, maxHeight);
-            int targetWidth = Math.Min(ClientSize.Width, screenArea.Width - 60);
+            int preferredWidth = Math.Min(ClientSize.Width, screenArea.Width - 60);
+            int targetWidth = Math.Clamp(preferredWidth, 900, screenArea.Width - 30);
 
             ClientSize = new Size(targetWidth, finalHeight);
 

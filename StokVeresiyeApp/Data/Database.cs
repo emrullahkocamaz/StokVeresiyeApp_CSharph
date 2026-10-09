@@ -490,6 +490,29 @@ IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('InvoiceItems')
 IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('InvoiceItems') AND name = 'ItemCode' AND max_length < 300)
     ALTER TABLE InvoiceItems ALTER COLUMN ItemCode NVARCHAR(150) NULL;
 
+-- FAST / IBAN & Sistem Ayarları Tablosu
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'AppSettings')
+CREATE TABLE AppSettings (
+    [Key] NVARCHAR(100) PRIMARY KEY,
+    [Value] NVARCHAR(MAX) NULL
+);
+
+-- Hızlı Satış Dokunmatik Ekran Butonları için IsFastSale Kolonu
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'IsFastSale')
+    ALTER TABLE Products ADD IsFastSale BIT NOT NULL DEFAULT 0;
+
+-- Gider Yönetimi & Net Kâr Tablosu
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Expenses')
+CREATE TABLE Expenses (
+    Id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    ExpenseDate NVARCHAR(50) NOT NULL,
+    Category NVARCHAR(100) NOT NULL,
+    Amount FLOAT NOT NULL,
+    PaymentMethod NVARCHAR(50) NOT NULL DEFAULT 'Nakit',
+    Note NVARCHAR(MAX) NULL,
+    CreatedAt NVARCHAR(50) NOT NULL
+);
+
 -- İndeksler
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Stock_Product')
     CREATE NONCLUSTERED INDEX IX_Stock_Product ON StockMovements(ProductId);
@@ -695,5 +718,69 @@ ALTER DATABASE [{_config.DatabaseName}] SET MULTI_USER;";
 
         // Eski yedek yüklendikten sonra yeni eklenen tüm kolonları (WholesalePrice, SpecialPrice vb.) otomatik ekle
         EnsureSchema();
+    }
+
+    /// <summary>
+    /// Veritabanındaki tüm kayıtlı işlem, fatura, stok, cari ve log verilerini tamamen siler,
+    /// otomatik artan ID sayaçlarını (IDENTITY) sıfırlar (RESEED 0 -> İlk kayıt ID=1 olur),
+    /// varsayılan yönetici kullanıcısını (admin/123456) ve Merkez Depo'yu yeniden ilklendirir.
+    /// </summary>
+    public static void ResetAllDataAndReseed(bool keepLicense = true)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = @"
+-- 1. İşlem ve Hareket Tablolarını Sil
+DELETE FROM InvoicePayments;
+DELETE FROM InvoiceItems;
+DELETE FROM Invoices;
+DELETE FROM StockMovements;
+DELETE FROM ProductPriceHistory;
+DELETE FROM ProductVariants;
+DELETE FROM Products;
+DELETE FROM AccountMovements;
+DELETE FROM Accounts;
+DELETE FROM DailyRegisterClosings;
+DELETE FROM Expenses;
+DELETE FROM AuditLogs;
+DELETE FROM Users;
+DELETE FROM Warehouses;
+
+-- 2. Otomatik Artan ID Sayaçlarını (IDENTITY) Sıfırla (Sonraki satır ID=1 olur)
+IF OBJECT_ID('InvoicePayments') IS NOT NULL DBCC CHECKIDENT ('InvoicePayments', RESEED, 0);
+IF OBJECT_ID('InvoiceItems') IS NOT NULL DBCC CHECKIDENT ('InvoiceItems', RESEED, 0);
+IF OBJECT_ID('Invoices') IS NOT NULL DBCC CHECKIDENT ('Invoices', RESEED, 0);
+IF OBJECT_ID('StockMovements') IS NOT NULL DBCC CHECKIDENT ('StockMovements', RESEED, 0);
+IF OBJECT_ID('ProductPriceHistory') IS NOT NULL DBCC CHECKIDENT ('ProductPriceHistory', RESEED, 0);
+IF OBJECT_ID('ProductVariants') IS NOT NULL DBCC CHECKIDENT ('ProductVariants', RESEED, 0);
+IF OBJECT_ID('Products') IS NOT NULL DBCC CHECKIDENT ('Products', RESEED, 0);
+IF OBJECT_ID('AccountMovements') IS NOT NULL DBCC CHECKIDENT ('AccountMovements', RESEED, 0);
+IF OBJECT_ID('Accounts') IS NOT NULL DBCC CHECKIDENT ('Accounts', RESEED, 0);
+IF OBJECT_ID('DailyRegisterClosings') IS NOT NULL DBCC CHECKIDENT ('DailyRegisterClosings', RESEED, 0);
+IF OBJECT_ID('Expenses') IS NOT NULL DBCC CHECKIDENT ('Expenses', RESEED, 0);
+IF OBJECT_ID('AuditLogs') IS NOT NULL DBCC CHECKIDENT ('AuditLogs', RESEED, 0);
+IF OBJECT_ID('Users') IS NOT NULL DBCC CHECKIDENT ('Users', RESEED, 0);
+IF OBJECT_ID('Warehouses') IS NOT NULL DBCC CHECKIDENT ('Warehouses', RESEED, 0);
+";
+        cmd.ExecuteNonQuery();
+
+        // 3. Varsayılan Kullanıcıları ve Depoyu ID 1'den Başlayarak Ekle
+        SeedDefaultUsers();
+        SeedDefaultWarehouse();
+
+        // 4. Arşivlenmiş Fatura PDF Dosyalarını Temizle
+        try
+        {
+            string archiveDir = Path.Combine(Folder, "Invoices");
+            if (Directory.Exists(archiveDir))
+            {
+                var files = Directory.GetFiles(archiveDir, "*.*", SearchOption.AllDirectories);
+                foreach (var f in files)
+                {
+                    try { File.Delete(f); } catch { }
+                }
+            }
+        }
+        catch { }
     }
 }

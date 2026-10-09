@@ -1,5 +1,6 @@
 using System.Data;
 using ClosedXML.Excel;
+using Microsoft.Data.SqlClient;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Models;
 
@@ -859,6 +860,134 @@ VALUES(@d, 0, @t, @doc, @amt, 'Havale/EFT', 'Banka Hesabı', @n);";
     /// <summary>
     /// Vadesi gelen, vadesi geçen veya tüm vadeli müşteri borçlarını listeler.
     /// </summary>
+    public static void ProcessIntegratedSaleOrPurchaseBatch(
+        DateTime date,
+        long accountId,
+        string operationType,
+        IReadOnlyList<(long ProductId, double Quantity, double UnitPrice, double TotalAmount)> items,
+        string paymentMethod,
+        string docNo,
+        string note,
+        string? dueDate = null,
+        long? warehouseId = null,
+        double cashAmount = 0,
+        double cardAmount = 0,
+        double transferAmount = 0,
+        double creditAmount = 0)
+    {
+        if (items.Count == 0 || items.Any(item => item.ProductId <= 0 || item.Quantity <= 0))
+        {
+            throw new ArgumentException("Toplu işlem için geçerli ürün ve miktar bilgileri gereklidir.", nameof(items));
+        }
+
+        double totalAmount = items.Sum(item => item.TotalAmount);
+        bool isSplitPayment = paymentMethod == "💳 Parçalı / Çoklu Ödeme";
+        if (isSplitPayment && Math.Abs(cashAmount + cardAmount + transferAmount + creditAmount - totalAmount) > 0.05)
+        {
+            throw new ArgumentException("Parçalı ödeme toplamı sepet toplamıyla eşleşmiyor.");
+        }
+
+        using var conn = Database.Open();
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            long effectiveWarehouseId = warehouseId.HasValue && warehouseId.Value > 0
+                ? warehouseId.Value
+                : (WarehouseService.GetDefaultWarehouse()?.Id ?? 1);
+            string movementType = operationType == "Satış" ? "Satılan" : "Gelen";
+
+            foreach (var item in items)
+            {
+                using var cmdStock = conn.CreateCommand();
+                cmdStock.Transaction = tx;
+                cmdStock.CommandText = @"
+INSERT INTO StockMovements(MovementDate, ProductId, MovementType, Quantity, UnitPrice, DocumentNo, AccountId, WarehouseId, Note)
+VALUES(@d, @p, @t, @q, @up, @doc, @acc, @wId, @n);";
+                cmdStock.Parameters.AddWithValue("@d", date.ToString("yyyy-MM-dd"));
+                cmdStock.Parameters.AddWithValue("@p", item.ProductId);
+                cmdStock.Parameters.AddWithValue("@t", movementType);
+                cmdStock.Parameters.AddWithValue("@q", item.Quantity);
+                cmdStock.Parameters.AddWithValue("@up", item.UnitPrice);
+                cmdStock.Parameters.AddWithValue("@doc", docNo ?? (object)DBNull.Value);
+                cmdStock.Parameters.AddWithValue("@acc", accountId > 0 ? accountId : (object)DBNull.Value);
+                cmdStock.Parameters.AddWithValue("@wId", effectiveWarehouseId);
+                cmdStock.Parameters.AddWithValue("@n", note ?? (object)DBNull.Value);
+                cmdStock.ExecuteNonQuery();
+            }
+
+            string offsetType = operationType == "Satış" ? "Tahsilat" : "Ödeme";
+            if (accountId > 0)
+            {
+                using var cmdAccount = conn.CreateCommand();
+                cmdAccount.Transaction = tx;
+                cmdAccount.CommandText = @"
+INSERT INTO AccountMovements(MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note, DueDate)
+VALUES(@d, @a, @t, @doc, @amt, @m, 'Merkez Kasa', @n, @due);";
+                cmdAccount.Parameters.AddWithValue("@d", date.ToString("yyyy-MM-dd"));
+                cmdAccount.Parameters.AddWithValue("@a", accountId);
+                cmdAccount.Parameters.AddWithValue("@t", operationType);
+                cmdAccount.Parameters.AddWithValue("@doc", docNo ?? (object)DBNull.Value);
+                cmdAccount.Parameters.AddWithValue("@amt", totalAmount);
+                cmdAccount.Parameters.AddWithValue("@m", isSplitPayment ? "Parçalı Ödeme" : paymentMethod);
+                cmdAccount.Parameters.AddWithValue("@n", note ?? (object)DBNull.Value);
+                cmdAccount.Parameters.AddWithValue("@due", !string.IsNullOrWhiteSpace(dueDate) ? dueDate : (object)DBNull.Value);
+                cmdAccount.ExecuteNonQuery();
+            }
+
+            if (isSplitPayment)
+            {
+                AddBatchPaymentMovement(conn, tx, date, accountId, offsetType, docNo, cashAmount, "Nakit", "Merkez Kasa", note);
+                AddBatchPaymentMovement(conn, tx, date, accountId, offsetType, docNo, cardAmount, "Kredi Kartı", "POS / Banka", note);
+                AddBatchPaymentMovement(conn, tx, date, accountId, offsetType, docNo, transferAmount, "Havale/EFT", "Banka Hesabı", note);
+            }
+            else if (accountId > 0 && paymentMethod != "Veresiye (Açık Hesap)")
+            {
+                AddBatchPaymentMovement(
+                    conn, tx, date, accountId, offsetType, docNo, totalAmount,
+                    paymentMethod,
+                    paymentMethod == "Havale/EFT" ? "Banka Hesabı" : "Merkez Kasa",
+                    note);
+            }
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    private static void AddBatchPaymentMovement(
+        SqlConnection conn,
+        SqlTransaction tx,
+        DateTime date,
+        long accountId,
+        string transactionType,
+        string? docNo,
+        double amount,
+        string method,
+        string cashBank,
+        string? note)
+    {
+        if (amount <= 0) return;
+
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"
+INSERT INTO AccountMovements(MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note)
+VALUES(@d, @a, @t, @doc, @amt, @m, @cb, @n);";
+        cmd.Parameters.AddWithValue("@d", date.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("@a", accountId);
+        cmd.Parameters.AddWithValue("@t", transactionType);
+        cmd.Parameters.AddWithValue("@doc", docNo ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("@amt", amount);
+        cmd.Parameters.AddWithValue("@m", method);
+        cmd.Parameters.AddWithValue("@cb", cashBank);
+        cmd.Parameters.AddWithValue("@n", string.IsNullOrWhiteSpace(note) ? $"{transactionType} ({docNo})" : note);
+        cmd.ExecuteNonQuery();
+    }
+
     public static DataTable GetDueReceivables(string filter = "Tümü")
     {
         var sql = @"

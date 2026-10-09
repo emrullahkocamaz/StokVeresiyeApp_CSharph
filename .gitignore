@@ -15,6 +15,8 @@ Setup_Output/
 *.sln.docstates
 
 # Build outputs
+*.bat
+*.ps1
 *.dll
 *.exe
 *.pdb

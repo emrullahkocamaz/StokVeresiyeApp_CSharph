@@ -389,7 +389,7 @@ public class MainForm : Form
         _lblSidebarBrand.Margin = new Padding(0, 0, 6, 0);
         _lblSidebarBrand.Click += (s, e) => ShowPage(0);
 
-        _lblSidebarBadge.Text = "v2.7";
+        _lblSidebarBadge.Text = "v2.8";
         _lblSidebarBadge.Font = new Font("Segoe UI", 7.5f, FontStyle.Bold);
         _lblSidebarBadge.ForeColor = Color.White;
         _lblSidebarBadge.BackColor = UITheme.Primary;

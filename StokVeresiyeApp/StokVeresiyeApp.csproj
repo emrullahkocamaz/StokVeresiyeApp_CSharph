@@ -9,7 +9,7 @@
     <AssemblyTitle>Bilensis - Stok &amp; Cari Yönetim Sistemi</AssemblyTitle>
     <Product>Bilensis</Product>
     <Description>Bilensis - Profesyonel Stok &amp; Cari Yönetim Sistemi</Description>
-    <Version>2.7.0</Version>
+    <Version>2.8.0</Version>
     <ApplicationIcon>Resources\app.ico</ApplicationIcon>
     <NoWarn>$(NoWarn);WFO1000</NoWarn>
   </PropertyGroup>

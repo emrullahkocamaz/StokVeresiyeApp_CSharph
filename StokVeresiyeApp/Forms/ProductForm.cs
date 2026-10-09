@@ -1,4 +1,3 @@
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Models;
@@ -9,29 +8,30 @@ namespace StokVeresiyeApp.Forms;
 
 public class ProductForm : BaseModernForm
 {
-    private readonly KryptonTextBox _txtCode = new();
-    private readonly KryptonTextBox _txtBarcode = new();
-    private readonly KryptonTextBox _txtName = new();
-    private readonly KryptonComboBox _cmbCategory = new() { DropDownStyle = ComboBoxStyle.DropDown };
-    private readonly KryptonComboBox _cmbUnit = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonTextBox _txtOpeningStock = new() { Text = "0" };
-    private readonly KryptonTextBox _txtMinStock = new() { Text = "5" };
-    private readonly KryptonTextBox _txtPurchasePrice = new() { Text = "0,00" };
-    private readonly KryptonTextBox _txtDiscount = new() { Text = "0" };
-    private readonly KryptonTextBox _txtVat = new() { Text = "20" };
-    private readonly KryptonTextBox _txtSalePrice = new() { Text = "0,00" };
-    private readonly KryptonTextBox _txtWholesalePrice = new() { Text = "0,00" };
-    private readonly KryptonTextBox _txtSpecialPrice = new() { Text = "0,00" };
-    private readonly KryptonDateTimePicker _dtpExpiryDate = new() 
+    private readonly TextBox _txtCode = new();
+    private readonly TextBox _txtBarcode = new();
+    private readonly TextBox _txtName = new();
+    private readonly ComboBox _cmbCategory = new() { DropDownStyle = ComboBoxStyle.DropDown };
+    private readonly ComboBox _cmbUnit = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TextBox _txtOpeningStock = new() { Text = "0" };
+    private readonly TextBox _txtMinStock = new() { Text = "5" };
+    private readonly TextBox _txtPackSize = new() { Text = "1" };
+    private readonly TextBox _txtPurchasePrice = new() { Text = "0,00" };
+    private readonly TextBox _txtDiscount = new() { Text = "0" };
+    private readonly TextBox _txtVat = new() { Text = "20" };
+    private readonly TextBox _txtSalePrice = new() { Text = "0,00" };
+    private readonly TextBox _txtWholesalePrice = new() { Text = "0,00" };
+    private readonly TextBox _txtSpecialPrice = new() { Text = "0,00" };
+    private readonly DateTimePicker _dtpExpiryDate = new() 
     { 
         Format = DateTimePickerFormat.Short, 
         ShowCheckBox = true, 
         Checked = false, 
         Width = 160 
     };
-    private readonly KryptonTextBox _txtBatchNumber = new() { Width = 200 };
-    private readonly KryptonComboBox _cmbFeatures = new() { DropDownStyle = ComboBoxStyle.DropDown };
-    private readonly KryptonLabel _lblCalculatedPrice = new() { Text = "0,00 ₺" };
+    private readonly TextBox _txtBatchNumber = new() { Width = 200 };
+    private readonly ComboBox _cmbFeatures = new() { DropDownStyle = ComboBoxStyle.DropDown };
+    private readonly Label _lblCalculatedPrice = new() { Text = "0,00 ₺" };
 
     private readonly long _id = -1;
 
@@ -70,6 +70,7 @@ public class ProductForm : BaseModernForm
         AddRow("Birim", _cmbUnit);
         AddRow("Açılış Stoğu", _txtOpeningStock);
         AddRow("Kritik Stok Uyarısı", _txtMinStock);
+        AddRow("Koli / Paket İçi Adet", _txtPackSize);
         AddRow("Alış Fiyatı (KDV Hariç)", _txtPurchasePrice);
         AddRow("İskonto %", _txtDiscount);
         AddRow("KDV Oranı %", _txtVat);
@@ -226,6 +227,7 @@ public class ProductForm : BaseModernForm
         _txtDiscount.Text = Convert.ToDouble(r["DiscountPercent"]).ToString("N2");
         _txtVat.Text = Convert.ToDouble(r["VatPercent"]).ToString("N2");
         _txtMinStock.Text = Convert.ToDouble(r["MinStockLevel"]).ToString("N2");
+        _txtPackSize.Text = r.Table.Columns.Contains("PackSize") && r["PackSize"] != DBNull.Value ? Convert.ToDouble(r["PackSize"]).ToString("N2") : "1";
 
         string? exp = r["ExpiryDate"]?.ToString();
         if (!string.IsNullOrWhiteSpace(exp) && DateTime.TryParse(exp, out var expDt))
@@ -311,8 +313,8 @@ public class ProductForm : BaseModernForm
             if (_id < 0)
             {
                 Database.Execute(@"
-INSERT INTO Products(Code, Barcode, Name, Category, Unit, OpeningStock, PurchasePrice, SalePrice, WholesalePrice, SpecialPrice, DiscountPercent, VatPercent, MinStockLevel, ExpiryDate, BatchNumber, Features) 
-VALUES($c, $b, $n, $cat, $u, $o, $p, $sp, $wp, $spp, $d, $v, $min, $exp, $batch, $feat)",
+INSERT INTO Products(Code, Barcode, Name, Category, Unit, OpeningStock, PurchasePrice, SalePrice, WholesalePrice, SpecialPrice, DiscountPercent, VatPercent, MinStockLevel, PackSize, ExpiryDate, BatchNumber, Features) 
+VALUES($c, $b, $n, $cat, $u, $o, $p, $sp, $wp, $spp, $d, $v, $min, $pack, $exp, $batch, $feat)",
                     ("$c", code),
                     ("$b", _txtBarcode.Text.Trim()),
                     ("$n", _txtName.Text.Trim()),
@@ -326,6 +328,7 @@ VALUES($c, $b, $n, $cat, $u, $o, $p, $sp, $wp, $spp, $d, $v, $min, $exp, $batch,
                     ("$d", ParseNumber(_txtDiscount.Text)),
                     ("$v", ParseNumber(_txtVat.Text)),
                     ("$min", ParseNumber(_txtMinStock.Text)),
+                    ("$pack", Math.Max(1, ParseNumber(_txtPackSize.Text))),
                     ("$exp", (object?)expiryStr ?? DBNull.Value),
                     ("$batch", (object?)batchStr ?? DBNull.Value),
                     ("$feat", (object?)featuresStr ?? DBNull.Value));
@@ -347,6 +350,7 @@ UPDATE Products SET
     DiscountPercent=$d, 
     VatPercent=$v, 
     MinStockLevel=$min,
+    PackSize=$pack,
     ExpiryDate=$exp,
     BatchNumber=$batch,
     Features=$feat 
@@ -364,6 +368,7 @@ WHERE Id=$id",
                     ("$d", ParseNumber(_txtDiscount.Text)),
                     ("$v", ParseNumber(_txtVat.Text)),
                     ("$min", ParseNumber(_txtMinStock.Text)),
+                    ("$pack", Math.Max(1, ParseNumber(_txtPackSize.Text))),
                     ("$exp", (object?)expiryStr ?? DBNull.Value),
                     ("$batch", (object?)batchStr ?? DBNull.Value),
                     ("$feat", (object?)featuresStr ?? DBNull.Value),

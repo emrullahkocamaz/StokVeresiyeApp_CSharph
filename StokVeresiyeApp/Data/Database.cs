@@ -83,6 +83,7 @@ public static class Database
 
     public static void SaveConfig()
     {
+        _localDbStarted = false;
         try
         {
             Directory.CreateDirectory(Folder);
@@ -100,8 +101,12 @@ public static class Database
         return conn;
     }
 
-    public static void EnsureLocalDbStarted()
+    private static volatile bool _localDbStarted;
+
+    public static void EnsureLocalDbStarted(bool force = false)
     {
+        if (_localDbStarted && !force) return;
+
         if (_config.Server.Contains("localdb", StringComparison.OrdinalIgnoreCase))
         {
             try
@@ -117,6 +122,8 @@ public static class Database
             }
             catch { }
         }
+
+        _localDbStarted = true;
     }
 
     public static void Initialize()
@@ -146,6 +153,129 @@ END";
         }
 
         EnsureSchema();
+    }
+
+    /// <summary>
+    /// Para, miktar ve yüzde alanlarını FLOAT'tan DECIMAL'e çevirir (kuruş hataları birikmesin diye).
+    /// Tek transaction'dır; bir kez çalışır, sonraki açılışlarda FLOAT sütun kalmadığı için atlanır.
+    /// Yüzde alanları DECIMAL(9,4), diğerleri DECIMAL(18,4).
+    /// </summary>
+    private static void EnsureDecimalColumns(SqlConnection c)
+    {
+        try
+        {
+            using var cmd = c.CreateCommand();
+            cmd.CommandTimeout = 300;
+            cmd.CommandText = @"
+IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo' AND DATA_TYPE IN ('float', 'real'))
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- Sayısal sütunları içeren (dahil edilmiş sütun dahil) bizim oluşturduğumuz indeksler yeniden kurulacak
+        IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Stock_Date') DROP INDEX IX_Stock_Date ON StockMovements;
+
+        DECLARE @t SYSNAME, @col SYSNAME, @nullable VARCHAR(3), @dfName SYSNAME, @dfDef NVARCHAR(MAX), @sql NVARCHAR(MAX), @type NVARCHAR(20);
+        DECLARE cur CURSOR LOCAL FAST_FORWARD FOR
+            SELECT c.TABLE_NAME, c.COLUMN_NAME, c.IS_NULLABLE
+            FROM INFORMATION_SCHEMA.COLUMNS c
+            INNER JOIN INFORMATION_SCHEMA.TABLES tb ON tb.TABLE_SCHEMA = c.TABLE_SCHEMA AND tb.TABLE_NAME = c.TABLE_NAME AND tb.TABLE_TYPE = 'BASE TABLE'
+            WHERE c.TABLE_SCHEMA = 'dbo' AND c.DATA_TYPE IN ('float', 'real');
+        OPEN cur;
+        FETCH NEXT FROM cur INTO @t, @col, @nullable;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @dfName = NULL; SET @dfDef = NULL;
+            SELECT @dfName = dc.name, @dfDef = dc.definition
+            FROM sys.default_constraints dc
+            INNER JOIN sys.columns sc ON sc.object_id = dc.parent_object_id AND sc.column_id = dc.parent_column_id
+            WHERE dc.parent_object_id = OBJECT_ID('dbo.' + QUOTENAME(@t)) AND sc.name = @col;
+
+            IF @dfName IS NOT NULL
+            BEGIN
+                SET @sql = N'ALTER TABLE dbo.' + QUOTENAME(@t) + N' DROP CONSTRAINT ' + QUOTENAME(@dfName) + N';';
+                EXEC (@sql);
+            END
+
+            SET @type = CASE WHEN @col LIKE '%Percent%' THEN 'DECIMAL(9,4)' ELSE 'DECIMAL(18,4)' END;
+            SET @sql = N'ALTER TABLE dbo.' + QUOTENAME(@t) + N' ALTER COLUMN ' + QUOTENAME(@col) + N' ' + @type
+                     + CASE WHEN @nullable = 'NO' THEN N' NOT NULL;' ELSE N' NULL;' END;
+            EXEC (@sql);
+
+            IF @dfName IS NOT NULL
+            BEGIN
+                SET @sql = N'ALTER TABLE dbo.' + QUOTENAME(@t) + N' ADD CONSTRAINT ' + QUOTENAME(@dfName) + N' DEFAULT ' + @dfDef + N' FOR ' + QUOTENAME(@col) + N';';
+                EXEC (@sql);
+            END
+
+            FETCH NEXT FROM cur INTO @t, @col, @nullable;
+        END
+        CLOSE cur; DEALLOCATE cur;
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END";
+            cmd.ExecuteNonQuery();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("EnsureDecimalColumns error: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Tüm ekranların kullandığı TEK stok formülü. Giriş/çıkış hareket türleri burada tanımlıdır.
+    /// Transfer Giriş ve Transfer Çıkış toplamda birbirini götürür.
+    /// </summary>
+    private static void EnsureStockViewAndIndexes(SqlConnection c)
+    {
+        try
+        {
+            using var v = c.CreateCommand();
+            v.CommandText = @"
+CREATE OR ALTER VIEW dbo.vw_ProductStock AS
+SELECT p.Id AS ProductId,
+       p.OpeningStock + COALESCE(SUM(CASE
+            WHEN sm.MovementType IN (N'Gelen', N'İade Giriş', N'Transfer Giriş') THEN sm.Quantity
+            WHEN sm.MovementType IN (N'Satılan', N'Satış', N'Giden', N'Çıkış', N'Fire', N'Fire / Zayi', N'Transfer Çıkış') THEN -sm.Quantity
+            ELSE 0 END), 0) AS CurrentStock,
+       COALESCE(SUM(CASE WHEN sm.MovementType IN (N'Gelen', N'İade Giriş', N'Transfer Giriş') THEN sm.Quantity ELSE 0 END), 0) AS TotalIn,
+       COALESCE(SUM(CASE WHEN sm.MovementType IN (N'Satılan', N'Satış', N'Giden', N'Çıkış', N'Fire', N'Fire / Zayi', N'Transfer Çıkış') THEN sm.Quantity ELSE 0 END), 0) AS TotalOut
+FROM dbo.Products p
+LEFT JOIN dbo.StockMovements sm ON sm.ProductId = p.Id
+GROUP BY p.Id, p.OpeningStock;";
+            v.ExecuteNonQuery();
+
+            using (var pack = c.CreateCommand())
+            {
+                pack.CommandText = "IF COL_LENGTH('Invoices', 'PdfSha256') IS NULL ALTER TABLE Invoices ADD PdfSha256 NVARCHAR(64) NULL; IF COL_LENGTH('Products', 'PackSize') IS NULL ALTER TABLE Products ADD PackSize DECIMAL(18,4) NOT NULL CONSTRAINT DF_Products_PackSize DEFAULT 1;";
+                pack.ExecuteNonQuery();
+            }
+
+            using var idx = c.CreateCommand();
+            idx.CommandText = @"
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Products_Barcode')
+    CREATE NONCLUSTERED INDEX IX_Products_Barcode ON Products(Barcode);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Stock_Date')
+    CREATE NONCLUSTERED INDEX IX_Stock_Date ON StockMovements(MovementDate) INCLUDE (ProductId, MovementType, Quantity);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Stock_DocNo')
+    CREATE NONCLUSTERED INDEX IX_Stock_DocNo ON StockMovements(DocumentNo);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AccMov_DocNo')
+    CREATE NONCLUSTERED INDEX IX_AccMov_DocNo ON AccountMovements(DocumentNo);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AccMov_Date')
+    CREATE NONCLUSTERED INDEX IX_AccMov_Date ON AccountMovements(MovementDate);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Invoices_Number')
+    CREATE NONCLUSTERED INDEX IX_Invoices_Number ON Invoices(InvoiceNumber);";
+            idx.ExecuteNonQuery();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("EnsureStockViewAndIndexes error: " + ex.Message);
+        }
     }
 
     public static void EnsureSchema()
@@ -524,6 +654,9 @@ IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_AuditLogs_Date')
     CREATE NONCLUSTERED INDEX IX_AuditLogs_Date ON AuditLogs(LogDate);
 ";
             cmd.ExecuteNonQuery();
+
+            EnsureDecimalColumns(c);
+            EnsureStockViewAndIndexes(c);
         }
         catch (Exception ex)
         {
@@ -570,60 +703,9 @@ IF @defId IS NOT NULL UPDATE StockMovements SET WarehouseId = @defId WHERE Wareh
         catch { }
     }
 
-    private static string HashPassword(string plainPassword)
-    {
-        using var sha = SHA256.Create();
-        byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(plainPassword + "_BILGE_SALT_2026"));
-        return Convert.ToHexString(hash);
-    }
-
+    // Varsayılan kullanıcı/şifre oluşturulmaz: ilk açılışta yönetici şifresini kullanıcı belirler (UserService.CreateInitialAdmin).
     private static void SeedDefaultUsers()
     {
-        try
-        {
-            using var c = Open();
-
-            // 1. Süper Kullanıcı (super / 367244)
-            using (var checkSuper = c.CreateCommand())
-            {
-                checkSuper.CommandText = "SELECT COUNT(*) FROM Users WHERE LOWER(Username) = 'super';";
-                if (Convert.ToInt64(checkSuper.ExecuteScalar()) == 0)
-                {
-                    using var insSuper = c.CreateCommand();
-                    insSuper.CommandText = @"
-INSERT INTO Users (Username, PasswordHash, FullName, Role, Permissions, IsActive, CreatedAt)
-VALUES (@u, @p, @fn, @r, @perm, 1, @created);";
-                    insSuper.Parameters.AddWithValue("@u", "super");
-                    insSuper.Parameters.AddWithValue("@p", HashPassword("367244"));
-                    insSuper.Parameters.AddWithValue("@fn", "Süper Kullanıcı");
-                    insSuper.Parameters.AddWithValue("@r", "SuperAdmin");
-                    insSuper.Parameters.AddWithValue("@perm", "ALL");
-                    insSuper.Parameters.AddWithValue("@created", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                    insSuper.ExecuteNonQuery();
-                }
-            }
-
-            // 2. Admin Kullanıcı (admin / 123456)
-            using (var checkAdmin = c.CreateCommand())
-            {
-                checkAdmin.CommandText = "SELECT COUNT(*) FROM Users WHERE LOWER(Username) = 'admin';";
-                if (Convert.ToInt64(checkAdmin.ExecuteScalar()) == 0)
-                {
-                    using var insAdmin = c.CreateCommand();
-                    insAdmin.CommandText = @"
-INSERT INTO Users (Username, PasswordHash, FullName, Role, Permissions, IsActive, CreatedAt)
-VALUES (@u, @p, @fn, @r, @perm, 1, @created);";
-                    insAdmin.Parameters.AddWithValue("@u", "admin");
-                    insAdmin.Parameters.AddWithValue("@p", HashPassword("123456"));
-                    insAdmin.Parameters.AddWithValue("@fn", "Sistem Yöneticisi");
-                    insAdmin.Parameters.AddWithValue("@r", "Admin");
-                    insAdmin.Parameters.AddWithValue("@perm", "ALL");
-                    insAdmin.Parameters.AddWithValue("@created", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                    insAdmin.ExecuteNonQuery();
-                }
-            }
-        }
-        catch { }
     }
 
     public static string NormalizeSql(string sql)
@@ -723,7 +805,7 @@ ALTER DATABASE [{_config.DatabaseName}] SET MULTI_USER;";
     /// <summary>
     /// Veritabanındaki tüm kayıtlı işlem, fatura, stok, cari ve log verilerini tamamen siler,
     /// otomatik artan ID sayaçlarını (IDENTITY) sıfırlar (RESEED 0 -> İlk kayıt ID=1 olur),
-    /// varsayılan yönetici kullanıcısını (admin/123456) ve Merkez Depo'yu yeniden ilklendirir.
+    /// Merkez Depo'yu yeniden ilklendirir.
     /// </summary>
     public static void ResetAllDataAndReseed(bool keepLicense = true)
     {

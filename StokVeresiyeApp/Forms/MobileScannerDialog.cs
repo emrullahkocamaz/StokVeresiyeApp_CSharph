@@ -173,7 +173,7 @@ public class MobileScannerDialog : Form
     private void UpdateQrCode()
     {
         string selectedIp = _cmbIpAddresses.SelectedItem?.ToString() ?? "localhost";
-        string url = $"http://{selectedIp}:{MobileScannerService.Port}/";
+        string url = MobileScannerService.BuildUrl(selectedIp);
         _lnkUrl.Text = url;
 
         try

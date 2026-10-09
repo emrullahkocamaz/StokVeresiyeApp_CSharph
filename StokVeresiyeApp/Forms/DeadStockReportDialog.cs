@@ -1,5 +1,4 @@
 using System.Data;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Helpers;
 
@@ -7,7 +6,7 @@ namespace StokVeresiyeApp.Forms;
 
 public class DeadStockReportDialog : BaseModernForm
 {
-    private readonly KryptonComboBox _cmbDays = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox _cmbDays = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly DataGridView _grid = new();
     private readonly Label _lblCardCount = new();
     private readonly Label _lblCardCost = new();
@@ -73,7 +72,7 @@ public class DeadStockReportDialog : BaseModernForm
 
         if (Controls.Find("actionPanel", true).FirstOrDefault() is Panel actionPanel)
         {
-            var btnGoBulk = UITheme.CreateKryptonButton("🏷️ Toplu İndirim Sihirbazına Git", Color.FromArgb(124, 58, 237), Color.White, (s, e) =>
+            var btnGoBulk = UITheme.CreateButton("🏷️ Toplu İndirim Sihirbazına Git", Color.FromArgb(124, 58, 237), Color.White, (s, e) =>
             {
                 using var dlg = new BulkPriceUpdateDialog();
                 dlg.ShowDialog(this);
@@ -153,21 +152,21 @@ SELECT
     COALESCE(p.Barcode, '') AS [Barkod],
     p.Name AS [Ürün Adı],
     p.Category AS [Kategori],
-    (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) AS [Mevcut Stok],
+    ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) AS [Mevcut Stok],
     p.Unit AS [Birim],
     p.PurchasePrice AS [Alış Fiyatı],
     p.SalePrice AS [Satış Fiyatı],
-    COALESCE((SELECT MAX(MovementDate) FROM StockMovements WHERE ProductId=p.Id AND MovementType IN ('Giden','Satış')), 'Hiç Satılmadı') AS [Son Satış Tarihi]
+    COALESCE((SELECT MAX(MovementDate) FROM StockMovements WHERE ProductId=p.Id AND MovementType IN ('Satılan', 'Satış', 'Giden')), 'Hiç Satılmadı') AS [Son Satış Tarihi]
 FROM Products p
 WHERE p.IsActive = 1
-  AND (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) > 0
+  AND ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) > 0
   AND NOT EXISTS (
       SELECT 1 FROM StockMovements sm2 
       WHERE sm2.ProductId = p.Id 
-        AND sm2.MovementType IN ('Giden', 'Satış') 
+        AND sm2.MovementType IN ('Satılan', 'Satış', 'Giden') 
         AND sm2.MovementDate >= '{cutoffDate}'
   )
-ORDER BY (p.PurchasePrice * (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0))) DESC";
+ORDER BY (p.PurchasePrice * ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id))) DESC";
 
         DataTable dt = Database.Query(sql);
         dt.Columns.Add("Bağlı Sermaye (₺)", typeof(double));

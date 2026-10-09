@@ -503,6 +503,10 @@ public static class MobilePortalHtmlBuilder
     </nav>
 
     <script>
+        // Bilgisayar uygulamasının verdiği bağlantıdaki erişim anahtarı (k) tüm API isteklerine otomatik eklenir
+        const __k = new URLSearchParams(location.search).get('k') || '';
+        const __origFetch = window.fetch.bind(window);
+        window.fetch = (u, o) => __origFetch(u + (String(u).includes('?') ? '&' : '?') + 'k=' + encodeURIComponent(__k), o);
         let currentTab = 'kasa';
         let allDebtors = [];
         let codeReader = null;

@@ -2,7 +2,6 @@ using System;
 using System.Data;
 using System.Drawing;
 using System.Windows.Forms;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Models;
@@ -10,19 +9,19 @@ using StokVeresiyeApp.Services;
 
 namespace StokVeresiyeApp.Forms;
 
-public class FastProductEntryDialog : KryptonForm
+public class FastProductEntryDialog : Form
 {
-    private readonly KryptonTextBox _txtBarcode = new();
-    private readonly KryptonTextBox _txtName = new();
-    private readonly KryptonComboBox _cmbFeatures = new() { DropDownStyle = ComboBoxStyle.DropDown };
-    private readonly KryptonComboBox _cmbCategory = new() { DropDownStyle = ComboBoxStyle.DropDown };
-    private readonly KryptonComboBox _cmbUnit = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonTextBox _txtPurchasePrice = new() { Text = "0,00" };
-    private readonly KryptonTextBox _txtSalePrice = new() { Text = "0,00" };
-    private readonly KryptonTextBox _txtQuantity = new() { Text = "1" };
-    private readonly KryptonComboBox _cmbWarehouse = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TextBox _txtBarcode = new();
+    private readonly TextBox _txtName = new();
+    private readonly ComboBox _cmbFeatures = new() { DropDownStyle = ComboBoxStyle.DropDown };
+    private readonly ComboBox _cmbCategory = new() { DropDownStyle = ComboBoxStyle.DropDown };
+    private readonly ComboBox _cmbUnit = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TextBox _txtPurchasePrice = new() { Text = "0,00" };
+    private readonly TextBox _txtSalePrice = new() { Text = "0,00" };
+    private readonly TextBox _txtQuantity = new() { Text = "1" };
+    private readonly ComboBox _cmbWarehouse = new() { DropDownStyle = ComboBoxStyle.DropDownList };
 
-    private readonly KryptonDataGridView _grid = new();
+    private readonly DataGridView _grid = new();
     private readonly DataTable _recentTable = new();
     private readonly Label _lblCounter = new();
 
@@ -77,14 +76,14 @@ public class FastProductEntryDialog : KryptonForm
         Controls.Add(pnlHeader);
 
         // Giriş Kartı Paneli
-        var pnlInputs = new KryptonGroupBox
+        var pnlInputs = new GroupBox
         {
             Dock = DockStyle.Top,
             Height = 195,
-            Values = { Heading = "Yeni Ürün Bilgileri" },
+            Text = "Yeni Ürün Bilgileri",
             Padding = new Padding(12)
         };
-        pnlInputs.Panel.Padding = new Padding(10);
+
 
         var tbl = new TableLayoutPanel
         {
@@ -118,7 +117,7 @@ public class FastProductEntryDialog : KryptonForm
         tbl.Controls.Add(CreateFieldPanel("Giriş Adeti / Stok:", _txtQuantity), 2, 1);
         tbl.Controls.Add(CreateFieldPanel("Hedef Depo:", _cmbWarehouse), 3, 1);
 
-        var btnGenBarcode = new KryptonButton
+        var btnGenBarcode = new Button
         {
             Text = "🎲 Barkod Üret",
             Dock = DockStyle.Fill,
@@ -127,16 +126,15 @@ public class FastProductEntryDialog : KryptonForm
         btnGenBarcode.Click += (s, e) => _txtBarcode.Text = DateTime.Now.ToString("869yyMMddHHmm");
         tbl.Controls.Add(CreateButtonPanel("Hızlı İşlem:", btnGenBarcode), 4, 1);
 
-        var btnAdd = new KryptonButton
+        var btnAdd = new Button
         {
             Text = "💾 Kaydet & Sonraki (Enter)",
             Dock = DockStyle.Fill,
             Cursor = Cursors.Hand
         };
-        btnAdd.StateCommon.Back.Color1 = Color.FromArgb(16, 185, 129);
-        btnAdd.StateCommon.Back.Color2 = Color.FromArgb(5, 150, 105);
-        btnAdd.StateCommon.Content.ShortText.Color1 = Color.White;
-        btnAdd.StateCommon.Content.ShortText.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+        btnAdd.BackColor = Color.FromArgb(16, 185, 129);
+        btnAdd.ForeColor = Color.White;
+        btnAdd.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
         btnAdd.Click += (s, e) => SaveAndNext();
         tbl.Controls.Add(CreateButtonPanel("Seri Ekle:", btnAdd), 5, 1);
 
@@ -148,7 +146,7 @@ public class FastProductEntryDialog : KryptonForm
         _txtSalePrice.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) _txtQuantity.Focus(); };
         _txtQuantity.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) SaveAndNext(); };
 
-        pnlInputs.Panel.Controls.Add(tbl);
+        pnlInputs.Controls.Add(tbl);
         Controls.Add(pnlInputs);
 
         // Alt Bar (Durum ve Sayaç)

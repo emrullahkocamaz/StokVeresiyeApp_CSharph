@@ -161,7 +161,7 @@ public class SidebarNavButton : Control
         {
             Color textColor = _isActive ? Color.White : (_isHovered ? Color.FromArgb(241, 245, 249) : Color.FromArgb(148, 163, 184));
             var font = _isActive ? _navFontBold : _navFontRegular;
-            int reservedWidth = 80;
+            int reservedWidth = 52;
             if (!string.IsNullOrEmpty(_badgeText))
                 reservedWidth += 56;
 
@@ -212,7 +212,7 @@ public class SidebarSectionTitle : Control
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
         Height = 24;
-        Width = 200;
+        Width = 206;
         Font = _secFont;
     }
 

@@ -1,5 +1,4 @@
 using System.Data;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Models;
@@ -9,16 +8,16 @@ namespace StokVeresiyeApp.Forms;
 
 public class ExpenseManageDialog : BaseModernForm
 {
-    private readonly KryptonDateTimePicker _dtpPeriodStart = new() { Format = DateTimePickerFormat.Short, Value = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1) };
-    private readonly KryptonDateTimePicker _dtpPeriodEnd = new() { Format = DateTimePickerFormat.Short, Value = DateTime.Today };
-    private readonly KryptonComboBox _cmbPeriodQuick = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly DateTimePicker _dtpPeriodStart = new() { Format = DateTimePickerFormat.Short, Value = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1) };
+    private readonly DateTimePicker _dtpPeriodEnd = new() { Format = DateTimePickerFormat.Short, Value = DateTime.Today };
+    private readonly ComboBox _cmbPeriodQuick = new() { DropDownStyle = ComboBoxStyle.DropDownList };
 
     // Yeni Gider Giriş Kontrolleri
-    private readonly KryptonDateTimePicker _dtpExpenseDate = new() { Format = DateTimePickerFormat.Short, Value = DateTime.Today };
-    private readonly KryptonComboBox _cmbExpenseCat = new() { DropDownStyle = ComboBoxStyle.DropDown };
-    private readonly KryptonTextBox _txtExpenseAmount = new() { Text = "0,00" };
-    private readonly KryptonComboBox _cmbExpenseMethod = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonTextBox _txtExpenseNote = new();
+    private readonly DateTimePicker _dtpExpenseDate = new() { Format = DateTimePickerFormat.Short, Value = DateTime.Today };
+    private readonly ComboBox _cmbExpenseCat = new() { DropDownStyle = ComboBoxStyle.DropDown };
+    private readonly TextBox _txtExpenseAmount = new() { Text = "0,00" };
+    private readonly ComboBox _cmbExpenseMethod = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TextBox _txtExpenseNote = new();
 
     // Özet Göstergeleri
     private readonly Label _lblRevenue = new();
@@ -42,7 +41,7 @@ public class ExpenseManageDialog : BaseModernForm
         pnlPeriod.Controls.Add(new Label { Text = " Bitiş: ", AutoSize = true, Padding = new Padding(8, 6, 0, 0) });
         pnlPeriod.Controls.Add(_dtpPeriodEnd);
 
-        var btnRefreshPeriod = UITheme.CreateKryptonButton("🔄 Hesapla", Color.FromArgb(79, 70, 229), Color.White, (s, e) => RefreshAll(), 100, 32);
+        var btnRefreshPeriod = UITheme.CreateButton("🔄 Hesapla", Color.FromArgb(79, 70, 229), Color.White, (s, e) => RefreshAll(), 100, 32);
         btnRefreshPeriod.Margin = new Padding(10, 0, 0, 0);
         pnlPeriod.Controls.Add(btnRefreshPeriod);
 
@@ -108,9 +107,9 @@ public class ExpenseManageDialog : BaseModernForm
         _txtExpenseAmount.Dock = DockStyle.Fill;
         _cmbExpenseMethod.Dock = DockStyle.Fill;
         _txtExpenseNote.Dock = DockStyle.Fill;
-        _txtExpenseNote.CueHint.CueHintText = "Açıklama (örn: Ocak Ayı Kirası)...";
+        _txtExpenseNote.PlaceholderText = "Açıklama (örn: Ocak Ayı Kirası)...";
 
-        var btnAddExpense = UITheme.CreateKryptonButton("➕ Masraf Ekle", Color.FromArgb(16, 185, 129), Color.White, (s, e) => SaveExpenseClick(), 105, 32);
+        var btnAddExpense = UITheme.CreateButton("➕ Masraf Ekle", Color.FromArgb(16, 185, 129), Color.White, (s, e) => SaveExpenseClick(), 105, 32);
         btnAddExpense.Dock = DockStyle.Fill;
 
         pnlAddExpense.Controls.Add(_dtpExpenseDate, 0, 0);
@@ -133,7 +132,7 @@ public class ExpenseManageDialog : BaseModernForm
 
         if (Controls.Find("actionPanel", true).FirstOrDefault() is Panel actionPanel)
         {
-            var btnDelete = UITheme.CreateKryptonButton("🗑️ Seçili Gideri Sil", Color.FromArgb(239, 68, 68), Color.White, (s, e) => DeleteExpenseClick(), 160, 36);
+            var btnDelete = UITheme.CreateButton("🗑️ Seçili Gideri Sil", Color.FromArgb(239, 68, 68), Color.White, (s, e) => DeleteExpenseClick(), 160, 36);
             btnDelete.Dock = DockStyle.Left;
             actionPanel.Controls.Add(btnDelete);
         }
@@ -253,14 +252,14 @@ ORDER BY ExpenseDate DESC, Id DESC";
         }
 
         // 2. Satış Hasılatı ve COGS (Maliyet) Hesaplama
-        // StockMovements üzerinden: MovementType IN ('Giden','Satış')
+        // StockMovements üzerinden: MovementType IN ('Satılan', 'Satış', 'Giden')
         string sqlSales = @"
 SELECT 
     COALESCE(SUM(sm.Quantity * sm.UnitPrice), 0) AS TotalRevenue,
     COALESCE(SUM(sm.Quantity * COALESCE(p.PurchasePrice, 0)), 0) AS TotalCogs
 FROM StockMovements sm
 LEFT JOIN Products p ON p.Id = sm.ProductId
-WHERE sm.MovementType IN ('Giden', 'Satış')
+WHERE sm.MovementType IN ('Satılan', 'Satış', 'Giden')
   AND sm.MovementDate >= @start AND sm.MovementDate <= @end";
 
         DataTable dtSales = Database.Query(sqlSales, ("@start", start), ("@end", end));

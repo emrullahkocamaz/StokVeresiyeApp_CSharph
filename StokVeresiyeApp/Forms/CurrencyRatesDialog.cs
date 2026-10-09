@@ -1,5 +1,4 @@
 using System.Data;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Services;
 
@@ -8,9 +7,9 @@ namespace StokVeresiyeApp.Forms;
 public class CurrencyRatesDialog : BaseModernForm
 {
     private readonly DataGridView _grid = new();
-    private readonly KryptonTextBox _txtAmount = new() { Text = "100" };
-    private readonly KryptonComboBox _cmbFrom = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonLabel _lblResult = new() { Text = "0,00 ₺" };
+    private readonly TextBox _txtAmount = new() { Text = "100" };
+    private readonly ComboBox _cmbFrom = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly Label _lblResult = new() { Text = "0,00 ₺" };
     private List<CurrencyRateItem> _rates = new();
 
     public CurrencyRatesDialog() : base("💱 Canlı TCMB Döviz Kurları & Çevirici", 850, 620)
@@ -40,7 +39,7 @@ public class CurrencyRatesDialog : BaseModernForm
 
         if (Controls.Find("actionPanel", true).FirstOrDefault() is Panel actionPanel)
         {
-            var btnRefresh = UITheme.CreateKryptonButton("🔄 Kurları Yenile (TCMB)", Color.FromArgb(79, 70, 229), Color.White, async (s, e) =>
+            var btnRefresh = UITheme.CreateButton("🔄 Kurları Yenile (TCMB)", Color.FromArgb(79, 70, 229), Color.White, async (s, e) =>
             {
                 await RefreshRatesAsync();
             }, 190, 36);

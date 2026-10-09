@@ -8,7 +8,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Models;
@@ -16,7 +15,7 @@ using StokVeresiyeApp.Services;
 
 namespace StokVeresiyeApp.Forms;
 
-public class BatchInvoiceImportDialog : KryptonForm
+public class BatchInvoiceImportDialog : Form
 {
     private readonly List<BatchInvoiceItemModel> _items = new();
     private readonly List<BatchInvoiceLineItemViewModel> _allFlatItems = new();
@@ -1403,6 +1402,7 @@ public class BatchInvoiceImportDialog : KryptonForm
         _progressBar.Maximum = toSave.Count;
 
         int savedCount = 0;
+        var savedPdfPaths = new List<string>();
         int errorCount = 0;
 
         await Task.Run(() =>
@@ -1504,6 +1504,7 @@ SELECT SCOPE_IDENTITY();",
 
                     // 3. Faturayı Kaydet (Stok hareketleri Gelen olarak işlenir, depolar güncellenir)
                     InvoiceService.SaveInvoice(inv, _chkUpdateStock.Checked, _chkUpdateAccount.Checked);
+                    if (!string.IsNullOrWhiteSpace(inv.PdfPath)) lock (savedPdfPaths) savedPdfPaths.Add(inv.PdfPath);
 
                     item.IsSaved = true;
                     item.IsSelected = false;
@@ -1554,5 +1555,8 @@ SELECT SCOPE_IDENTITY();",
             MessageBoxButtons.OK,
             errorCount > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information
         );
+
+        // PDF'ler güvenli arşive alındı; Google Drive'a da yedeklensin mi (ayara göre sorar / otomatik yapar)
+        PdfArchiveService.OfferDriveCopy(this, savedPdfPaths);
     }
 }

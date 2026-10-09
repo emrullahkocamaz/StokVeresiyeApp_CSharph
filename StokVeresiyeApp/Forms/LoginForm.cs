@@ -2,17 +2,16 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Models;
 using StokVeresiyeApp.Services;
 
 namespace StokVeresiyeApp.Forms;
 
-public class LoginForm : KryptonForm
+public class LoginForm : Form
 {
-    private readonly KryptonTextBox _txtUsername = new();
-    private readonly KryptonTextBox _txtPassword = new();
+    private readonly TextBox _txtUsername = new();
+    private readonly TextBox _txtPassword = new();
     private readonly CheckBox _chkShowPass = new();
     private readonly CheckBox _chkRememberMe = new();
     private readonly Label _lblError = new();
@@ -271,12 +270,8 @@ public class LoginForm : KryptonForm
         // Satır 4: _txtUsername
         _txtUsername.Dock = DockStyle.Fill;
         _txtUsername.Margin = new Padding(0);
-        _txtUsername.StateCommon.Border.Rounding = 6;
-        _txtUsername.StateCommon.Border.Color1 = Color.FromArgb(203, 213, 225);
-        _txtUsername.StateCommon.Content.Font = new Font("Segoe UI", 10f);
-        _txtUsername.StateCommon.Content.Padding = new Padding(8, 6, 8, 6);
-        _txtUsername.CueHint.CueHintText = "Kullanıcı adınızı girin (örn: admin)";
-        _txtUsername.CueHint.Color1 = Color.FromArgb(148, 163, 184);
+        _txtUsername.Font = new Font("Segoe UI", 10f);
+        _txtUsername.PlaceholderText = "Kullanıcı adınızı girin";
         rightTable.Controls.Add(_txtUsername, 0, 4);
 
         // Satır 5: Şifre Etiketi
@@ -295,12 +290,8 @@ public class LoginForm : KryptonForm
         _txtPassword.Dock = DockStyle.Fill;
         _txtPassword.Margin = new Padding(0);
         _txtPassword.PasswordChar = '●';
-        _txtPassword.StateCommon.Border.Rounding = 6;
-        _txtPassword.StateCommon.Border.Color1 = Color.FromArgb(203, 213, 225);
-        _txtPassword.StateCommon.Content.Font = new Font("Segoe UI", 10f);
-        _txtPassword.StateCommon.Content.Padding = new Padding(8, 6, 8, 6);
-        _txtPassword.CueHint.CueHintText = "Şifrenizi girin (Varsayılan: 123456)";
-        _txtPassword.CueHint.Color1 = Color.FromArgb(148, 163, 184);
+        _txtPassword.Font = new Font("Segoe UI", 10f);
+        _txtPassword.PlaceholderText = "Şifrenizi girin";
         rightTable.Controls.Add(_txtPassword, 0, 6);
 
         // Satır 7: Seçenekler (Şifre Göster & Beni Hatırla) - 2 Sütunlu Grid
@@ -347,23 +338,16 @@ public class LoginForm : KryptonForm
         rightTable.Controls.Add(_lblError, 0, 8);
 
         // Satır 9: Giriş Butonu
-        var btnLogin = new KryptonButton
+        var btnLogin = new Button
         {
             Text = "GİRİŞ YAP  ➔",
             Dock = DockStyle.Fill,
             Cursor = Cursors.Hand,
             Margin = new Padding(0)
         };
-        btnLogin.StateCommon.Back.Color1 = Color.FromArgb(37, 99, 235);
-        btnLogin.StateCommon.Back.Color2 = Color.FromArgb(29, 78, 216);
-        btnLogin.StateCommon.Back.ColorAngle = 45f;
-        btnLogin.StateCommon.Border.Rounding = 8;
-        btnLogin.StateCommon.Border.DrawBorders = PaletteDrawBorders.All;
-        btnLogin.StateCommon.Border.Color1 = Color.FromArgb(29, 78, 216);
-        btnLogin.StateCommon.Content.ShortText.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
-        btnLogin.StateCommon.Content.ShortText.Color1 = Color.White;
-        btnLogin.StateTracking.Back.Color1 = Color.FromArgb(29, 78, 216);
-        btnLogin.StateTracking.Back.Color2 = Color.FromArgb(30, 58, 138);
+        btnLogin.BackColor = UITheme.Primary;
+        btnLogin.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
+        btnLogin.ForeColor = Color.White;
 
         btnLogin.Click += LoginClick;
         rightTable.Controls.Add(btnLogin, 0, 9);
@@ -510,6 +494,19 @@ public class LoginForm : KryptonForm
             catch { }
 
             AuditLogService.Log("Kullanıcı", "Giriş Yapıldı", auth.User.Id, auth.User.Username, null, "Başarılı kullanıcı girişi");
+
+            // Bilinen zayıf/varsayılan bir şifreyle girildiyse şifre değişimi zorunludur
+            if (UserService.MustChangePassword)
+            {
+                using var pwDlg = new PasswordSetupDialog("Şifrenizi Değiştirin", "Bu şifre kolay tahmin edilebilir. Devam etmeden önce yeni bir şifre belirleyin.", false);
+                if (pwDlg.ShowDialog(this) != DialogResult.OK)
+                {
+                    UserService.Logout();
+                    return;
+                }
+                UserService.ChangePassword(auth.User.Id, pwDlg.NewPassword);
+            }
+
             DialogResult = DialogResult.OK;
             Close();
         }

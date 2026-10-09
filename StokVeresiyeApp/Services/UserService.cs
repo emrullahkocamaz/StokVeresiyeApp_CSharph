@@ -10,111 +10,181 @@ public static class UserService
 {
     public static User? CurrentUser { get; private set; }
 
+    /// <summary>Giriş yapan kişi, bilinen zayıf/varsayılan bir şifreyle girdiyse true olur: şifresini değiştirmesi istenir.</summary>
+    public static bool MustChangePassword { get; private set; }
+
+    private static readonly string[] WeakPasswords = { "123456", "1234", "12345", "admin", "admin123", "password", "367244" };
+
+    // Kullanıcı adı olarak ayrılmış (yetki yükseltmeyi önlemek için): yalnızca süper kullanıcı oluşturabilir
+    private static readonly string[] ReservedUsernames = { "super", "superuser" };
+
     public static void Initialize()
     {
-        using var c = Database.Open();
-
-        // 1. Süper Kullanıcı Kontrolü (super / 367244)
-        using (var checkSuper = c.CreateCommand())
-        {
-            checkSuper.CommandText = "SELECT COUNT(*) FROM Users WHERE LOWER(Username) = 'super';";
-            long countSuper = Convert.ToInt64(checkSuper.ExecuteScalar());
-
-            if (countSuper == 0)
-            {
-                using var insertSuper = c.CreateCommand();
-                insertSuper.CommandText = @"
-INSERT INTO Users (Username, PasswordHash, FullName, Role, Permissions, IsActive, CreatedAt)
-VALUES (@u, @p, @fn, @r, @perm, 1, @created);";
-                insertSuper.Parameters.AddWithValue("@u", "super");
-                insertSuper.Parameters.AddWithValue("@p", HashPassword("367244"));
-                insertSuper.Parameters.AddWithValue("@fn", "Süper Kullanıcı");
-                insertSuper.Parameters.AddWithValue("@r", "SuperAdmin");
-                insertSuper.Parameters.AddWithValue("@perm", "ALL");
-                insertSuper.Parameters.AddWithValue("@created", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                insertSuper.ExecuteNonQuery();
-            }
-        }
-
-        // 2. Admin Kullanıcı Kontrolü (admin / 123456)
-        using (var checkAdmin = c.CreateCommand())
-        {
-            checkAdmin.CommandText = "SELECT COUNT(*) FROM Users WHERE LOWER(Username) = 'admin';";
-            long countAdmin = Convert.ToInt64(checkAdmin.ExecuteScalar());
-
-            if (countAdmin == 0)
-            {
-                using var insertAdmin = c.CreateCommand();
-                insertAdmin.CommandText = @"
-INSERT INTO Users (Username, PasswordHash, FullName, Role, Permissions, IsActive, CreatedAt)
-VALUES (@u, @p, @fn, @r, @perm, 1, @created);";
-                insertAdmin.Parameters.AddWithValue("@u", "admin");
-                insertAdmin.Parameters.AddWithValue("@p", HashPassword("123456"));
-                insertAdmin.Parameters.AddWithValue("@fn", "Sistem Yöneticisi");
-                insertAdmin.Parameters.AddWithValue("@r", "Admin");
-                insertAdmin.Parameters.AddWithValue("@perm", "ALL");
-                insertAdmin.Parameters.AddWithValue("@created", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                insertAdmin.ExecuteNonQuery();
-            }
-        }
+        // Varsayılan kullanıcı veya şifre oluşturulmaz. İlk kurulumda yönetici şifresini kullanıcı belirler
+        // (bkz. NeedsFirstRunSetup / CreateInitialAdmin).
     }
 
+    // ---- Şifre karma (PBKDF2) ----
+    // Biçim: pbkdf2-sha256$<iterasyon>$<tuz base64>$<hash base64>. Her şifrenin kendi rastgele tuzu vardır.
+    private const string Pbkdf2Prefix = "pbkdf2-sha256";
+    private const int Pbkdf2Iterations = 210_000;
+
     public static string HashPassword(string plainPassword)
+    {
+        byte[] salt = RandomNumberGenerator.GetBytes(16);
+        byte[] hash = Rfc2898DeriveBytes.Pbkdf2(plainPassword, salt, Pbkdf2Iterations, HashAlgorithmName.SHA256, 32);
+        return $"{Pbkdf2Prefix}${Pbkdf2Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
+    }
+
+    /// <summary>Eski sürümlerden kalan (sabit tuzlu SHA-256) karma. Yalnızca eski kayıtları doğrulamak için.</summary>
+    private static string LegacyHash(string plainPassword)
     {
         using var sha = SHA256.Create();
         byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(plainPassword + "_BILGE_SALT_2026"));
         return Convert.ToHexString(hash);
     }
 
+    /// <summary>Şifreyi doğrular. needsUpgrade true ise kayıt eski biçimdedir ve yeni biçime çevrilmelidir.</summary>
+    public static bool VerifyPassword(string plainPassword, string storedHash, out bool needsUpgrade)
+    {
+        needsUpgrade = false;
+        if (string.IsNullOrEmpty(storedHash)) return false;
+
+        if (storedHash.StartsWith(Pbkdf2Prefix + "$", StringComparison.Ordinal))
+        {
+            var parts = storedHash.Split('$');
+            if (parts.Length != 4 || !int.TryParse(parts[1], out int iterations)) return false;
+            try
+            {
+                byte[] salt = Convert.FromBase64String(parts[2]);
+                byte[] expected = Convert.FromBase64String(parts[3]);
+                byte[] actual = Rfc2898DeriveBytes.Pbkdf2(plainPassword, salt, iterations, HashAlgorithmName.SHA256, expected.Length);
+                bool ok = CryptographicOperations.FixedTimeEquals(actual, expected);
+                needsUpgrade = ok && iterations < Pbkdf2Iterations;
+                return ok;
+            }
+            catch { return false; }
+        }
+
+        // Eski biçim
+        byte[] a = Encoding.UTF8.GetBytes(LegacyHash(plainPassword));
+        byte[] b = Encoding.UTF8.GetBytes(storedHash.ToUpperInvariant());
+        bool legacyOk = a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b);
+        needsUpgrade = legacyOk;
+        return legacyOk;
+    }
+
+    public static bool IsWeakPassword(string password) =>
+        password.Length < 6 || WeakPasswords.Contains(password, StringComparer.OrdinalIgnoreCase);
+
+    // ---- İlk kurulum ----
+
+    /// <summary>Hiç aktif (süper kullanıcı dışında) kullanıcı yoksa ilk kurulum gerekir.</summary>
+    public static bool NeedsFirstRunSetup()
+    {
+        var n = Database.ExecuteScalar("SELECT COUNT(*) FROM Users WHERE IsActive = 1 AND LOWER(Username) <> 'super';");
+        return n == null || Convert.ToInt64(n) == 0;
+    }
+
+    public static (bool Success, string Message) CreateInitialAdmin(string password)
+    {
+        if (IsWeakPassword(password))
+            return (false, "Şifre en az 6 karakter olmalı ve yaygın bir şifre (123456, admin vb.) olmamalıdır.");
+
+        Database.Execute(@"
+INSERT INTO Users (Username, PasswordHash, FullName, Role, Permissions, IsActive, CreatedAt)
+VALUES (@u, @p, @fn, @r, @perm, 1, @created);",
+            ("@u", "admin"), ("@p", HashPassword(password)), ("@fn", "Sistem Yöneticisi"),
+            ("@r", "Admin"), ("@perm", "ALL"), ("@created", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
+        return (true, "Yönetici hesabı oluşturuldu.");
+    }
+
+    // ---- Süper kullanıcı (lisans üretici) ----
+
+    /// <summary>Süper kullanıcı hesabını oluşturur veya şifresini günceller. Yalnızca "--set-super" komutuyla çağrılır.</summary>
+    public static void SetSuperUserPassword(string password)
+    {
+        string hash = HashPassword(password);
+        int updated = Database.Execute("UPDATE Users SET PasswordHash = @p, IsActive = 1 WHERE LOWER(Username) = 'super';", ("@p", hash));
+        if (updated == 0)
+        {
+            Database.Execute(@"
+INSERT INTO Users (Username, PasswordHash, FullName, Role, Permissions, IsActive, CreatedAt)
+VALUES ('super', @p, N'Süper Kullanıcı', 'SuperAdmin', 'ALL', 1, @created);",
+                ("@p", hash), ("@created", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
+        }
+    }
+
+    /// <summary>Lisans üretici penceresini açmak için süper kullanıcı şifresini veritabanındaki karmayla doğrular.</summary>
+    public static bool VerifySuperPassword(string password)
+    {
+        try
+        {
+            var stored = Database.ExecuteScalar("SELECT TOP 1 PasswordHash FROM Users WHERE LOWER(Username) = 'super' AND IsActive = 1;")?.ToString();
+            if (string.IsNullOrEmpty(stored)) return false;
+            if (!VerifyPassword(password, stored, out bool upgrade)) return false;
+            if (upgrade)
+            {
+                Database.Execute("UPDATE Users SET PasswordHash = @p WHERE LOWER(Username) = 'super';", ("@p", HashPassword(password)));
+            }
+            return true;
+        }
+        catch { return false; }
+    }
+
+    public static bool SuperUserExists()
+    {
+        var n = Database.ExecuteScalar("SELECT COUNT(*) FROM Users WHERE LOWER(Username) = 'super' AND IsActive = 1;");
+        return n != null && Convert.ToInt64(n) > 0;
+    }
+
+    public static void ChangePassword(long userId, string newPassword)
+    {
+        Database.Execute("UPDATE Users SET PasswordHash = @p WHERE Id = @id;", ("@p", HashPassword(newPassword)), ("@id", userId));
+        AuditLogService.Log("Kullanıcı", "Şifre Değiştirildi", userId, null, null, "Kullanıcı şifresi güncellendi.");
+        if (CurrentUser != null && CurrentUser.Id == userId) MustChangePassword = false;
+    }
+
     public static (bool Success, string Message, User? User) Authenticate(string username, string password)
     {
+        MustChangePassword = false;
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
             return (false, "Kullanıcı adı ve şifre boş bırakılamaz.", null);
 
         username = username.Trim().ToLowerInvariant();
-        string hashed = HashPassword(password);
 
         try
         {
             using var c = Database.Open();
             using var cmd = c.CreateCommand();
             cmd.CommandText = @"
-SELECT Id, Username, PasswordHash, FullName, Role, Permissions, AssignedWarehouses, IsActive, CreatedAt 
-FROM Users 
+SELECT Id, Username, PasswordHash, FullName, Role, Permissions, AssignedWarehouses, IsActive, CreatedAt
+FROM Users
 WHERE LOWER(Username) = @u;";
             cmd.Parameters.AddWithValue("@u", username);
 
             using var reader = cmd.ExecuteReader();
             if (!reader.Read())
             {
-                return (false, "Girilen kullanıcı adı bulunamadı.", null);
+                return (false, "Kullanıcı adı veya şifre hatalı.", null);
             }
 
             bool isActive = Convert.ToBoolean(reader["IsActive"]);
+            string dbHash = reader["PasswordHash"]?.ToString() ?? "";
+            if (!VerifyPassword(password, dbHash, out bool needsUpgrade))
+            {
+                return (false, "Kullanıcı adı veya şifre hatalı.", null);
+            }
+
             if (!isActive)
             {
                 return (false, "Bu kullanıcı hesabı yönetici tarafından devre dışı bırakılmıştır.", null);
             }
 
-            string dbHash = reader["PasswordHash"]?.ToString() ?? "";
-            bool isMatch = string.Equals(dbHash, hashed, StringComparison.OrdinalIgnoreCase);
-
-            // İlk kurulum ve sıfırlama kolaylığı: Admin için yaygın varsayılan şifrelerle akıllı eşleşme
-            if (!isMatch && (username == "admin" && (password == "123456" || password == "admin" || password == "admin123" || password == "1234") ||
-                             username == "super" && password == "367244"))
-            {
-                isMatch = true;
-                dbHash = hashed;
-            }
-
-            if (!isMatch)
-            {
-                return (false, "Hatalı şifre girdiniz. Lütfen tekrar deneyiniz. (Varsayılan: admin / 123456)", null);
-            }
-
+            long userId = Convert.ToInt64(reader["Id"]);
             var user = new User
             {
-                Id = Convert.ToInt64(reader["Id"]),
+                Id = userId,
                 Username = reader["Username"]?.ToString() ?? "",
                 PasswordHash = dbHash,
                 FullName = reader["FullName"]?.ToString() ?? "",
@@ -124,8 +194,24 @@ WHERE LOWER(Username) = @u;";
                 IsActive = true,
                 CreatedAt = DateTime.TryParse(reader["CreatedAt"]?.ToString(), out var dt) ? dt : DateTime.Now
             };
+            reader.Close();
+
+            // Eski biçimli karmayı sessizce yeni biçime çevir
+            if (needsUpgrade)
+            {
+                try
+                {
+                    using var up = c.CreateCommand();
+                    up.CommandText = "UPDATE Users SET PasswordHash = @p WHERE Id = @id;";
+                    up.Parameters.AddWithValue("@p", HashPassword(password));
+                    up.Parameters.AddWithValue("@id", userId);
+                    up.ExecuteNonQuery();
+                }
+                catch { }
+            }
 
             CurrentUser = user;
+            MustChangePassword = WeakPasswords.Contains(password, StringComparer.OrdinalIgnoreCase);
             return (true, "Giriş başarılı.", user);
         }
         catch (Exception ex)
@@ -184,9 +270,14 @@ WHERE LOWER(Username) = @u;";
 
         user.Username = user.Username.Trim().ToLowerInvariant();
 
-        if (user.Username == "super" && CurrentUser?.IsSuperUser != true)
+        if (ReservedUsernames.Contains(user.Username) && CurrentUser?.IsSuperUser != true)
         {
-            return (false, "'super' kullanıcı adı sistem tarafından ayrılmıştır.");
+            return (false, "Bu kullanıcı adı sistem tarafından ayrılmıştır.");
+        }
+
+        if (user.Role.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase) && CurrentUser?.IsSuperUser != true)
+        {
+            return (false, "SuperAdmin rolünü yalnızca süper kullanıcı atayabilir.");
         }
 
         try
@@ -231,7 +322,7 @@ VALUES (@u, @p, @fn, @r, @perm, @wh, @act, @created);";
 
         user.Username = user.Username.Trim().ToLowerInvariant();
 
-        if (user.Username == "super" && CurrentUser?.IsSuperUser != true)
+        if ((ReservedUsernames.Contains(user.Username) || user.Role.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase)) && CurrentUser?.IsSuperUser != true)
         {
             return (false, "Süper kullanıcı hesabını yalnızca süper kullanıcı düzenleyebilir.");
         }

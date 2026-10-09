@@ -1,4 +1,5 @@
 using System.Data;
+using Microsoft.Data.SqlClient;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Models;
@@ -7,251 +8,270 @@ namespace StokVeresiyeApp.Services;
 
 public static class InvoiceService
 {
-    private static readonly string InvoicesArchiveDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "StokVeresiyeApp",
-        "Invoices"
-    );
-
     /// <summary>
     /// Faturayı, kalemlerini, stok ve cari hareketlerini kaydeder.
     /// </summary>
-    public static long SaveInvoice(Invoice invoice, bool updateStock = true, bool updateAccountBalance = true)
+    public static long SaveInvoice(Invoice invoice, bool updateStock = true, bool updateAccountBalance = true, long? replaceInvoiceId = null)
     {
-        // PDF dosyasını hem arşiv klasörüne kopyala hem de veritabanına gömmek için oku
+        // PDF'in güvenli kopyası ÖNCE programın arşiv klasörüne alınır ve doğrulanır (veritabanına PDF gömülmez).
+        // Kaynak dosya (e-posta eki, USB, indirilenler) sonradan silinse bile fatura belgesi kaybolmaz.
+        // Kopyalama başarısız olursa fatura hiç kaydedilmez.
         string? archivedPdfPath = null;
-        byte[]? pdfBytes = invoice.PdfData;
+        string? pdfSha256 = null;
+        bool archiveCreatedNew = false;
 
         if (!string.IsNullOrWhiteSpace(invoice.PdfPath) && File.Exists(invoice.PdfPath))
         {
-            try
-            {
-                if (pdfBytes == null || pdfBytes.Length == 0)
-                {
-                    pdfBytes = File.ReadAllBytes(invoice.PdfPath);
-                    invoice.PdfData = pdfBytes;
-                }
-
-                string ext = Path.GetExtension(invoice.PdfPath);
-                string cleanNo = string.Join("_", invoice.InvoiceNumber.Split(Path.GetInvalidFileNameChars()));
-                string targetFile = Path.Combine(InvoicesArchiveDir, $"{cleanNo}_{DateTime.Now:yyyyMMddHHmmss}{ext}");
-                File.Copy(invoice.PdfPath, targetFile, true);
-                archivedPdfPath = targetFile;
-            }
-            catch { }
+            var stored = PdfArchiveService.Store(invoice.PdfPath, invoice.InvoiceNumber, invoice.InvoiceDate);
+            archivedPdfPath = stored.Path;
+            pdfSha256 = stored.Sha256;
+            archiveCreatedNew = stored.CreatedNew;
+        }
+        else if (invoice.PdfData != null && invoice.PdfData.Length > 0)
+        {
+            var stored = PdfArchiveService.StoreBytes(invoice.PdfData, ".pdf", invoice.InvoiceNumber, invoice.InvoiceDate);
+            archivedPdfPath = stored.Path;
+            pdfSha256 = stored.Sha256;
+            archiveCreatedNew = stored.CreatedNew;
         }
 
-        // 1. Invoices tablosuna ekle (PdfData VARBINARY olarak doğrudan veritabanına gömülür)
-        var invoiceIdObj = Database.ExecuteScalar(@"
-INSERT INTO Invoices (InvoiceNumber, InvoiceDate, InvoiceType, AccountId, WarehouseId, SubTotal, VatTotal, GrandTotal, PdfPath, PdfData, Note, CustomizationId, Scenario, InvoiceKind, OrderNumber, OrderDate, RelatedStore, CargoId, ReferenceNo, IssueTime, CreatedAt)
-VALUES (@num, @date, @type, @accId, @wId, @sub, @vat, @grand, @pdf, @pdfData, @note, @cust, @scen, @kind, @ordNo, @ordDate, @store, @cargo, @ref, @time, @created);
-SELECT SCOPE_IDENTITY();",
-            ("@num", invoice.InvoiceNumber),
-            ("@date", invoice.InvoiceDate.ToString("yyyy-MM-dd")),
-            ("@type", invoice.InvoiceType),
-            ("@accId", invoice.AccountId),
-            ("@wId", invoice.WarehouseId),
-            ("@sub", invoice.SubTotal),
-            ("@vat", invoice.VatTotal),
-            ("@grand", invoice.GrandTotal),
-            ("@pdf", (object?)archivedPdfPath ?? (object?)invoice.PdfPath ?? DBNull.Value),
-            ("@pdfData", (object?)pdfBytes ?? DBNull.Value),
-            ("@note", (object?)invoice.Note ?? DBNull.Value),
-            ("@cust", (object?)invoice.CustomizationId ?? DBNull.Value),
-            ("@scen", (object?)invoice.Scenario ?? DBNull.Value),
-            ("@kind", (object?)invoice.InvoiceKind ?? DBNull.Value),
-            ("@ordNo", (object?)invoice.OrderNumber ?? DBNull.Value),
-            ("@ordDate", (object?)invoice.OrderDate ?? DBNull.Value),
-            ("@store", (object?)invoice.RelatedStore ?? DBNull.Value),
-            ("@cargo", (object?)invoice.CargoId ?? DBNull.Value),
-            ("@ref", (object?)invoice.ReferenceNo ?? DBNull.Value),
-            ("@time", (object?)invoice.IssueTime ?? DBNull.Value),
-            ("@created", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
-        );
+        invoice.PdfData = null;
+        if (archivedPdfPath != null) invoice.PdfPath = archivedPdfPath;
 
-        long invoiceId = Convert.ToInt64(invoiceIdObj);
-        invoice.Id = invoiceId;
-
-        // 2. Kalemleri ekle ve stok hareketlerini oluştur
-        foreach (var item in invoice.Items)
+        // Fatura başlığı, kalemler, ürün kartları, stok ve cari hareketleri TEK transaction içinde yazılır.
+        // Herhangi bir adım hata verirse hiçbir kayıt kalmaz (yarım fatura oluşmaz).
+        long invoiceId;
+        using (var conn = Database.Open())
+        using (var tx = conn.BeginTransaction())
         {
-            // Eğer kullanıcı bu kalemi faturadan silmeyi / hariç tutmayı seçtiyse kaydetme
-            if (string.Equals(item.ActionDecision, "Faturadan Sil", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(item.ActionDecision, "Sil", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                continue;
-            }
-
-            item.InvoiceId = invoiceId;
-
-            // Eğer sistemde kayıtlı bir ürün ID'si yoksa otomatik ürün kartı oluştur
-            if (!item.ProductId.HasValue || item.ProductId.Value <= 0)
-            {
-                string prodCode = !string.IsNullOrWhiteSpace(item.ItemCode) 
-                    ? item.ItemCode.Trim()
-                    : "URN-" + DateTime.Now.ToString("yyyyMMddHHmmss") + new Random().Next(100, 999);
-                if (prodCode.Length > 140) prodCode = prodCode.Substring(0, 140);
-
-                string prodName = !string.IsNullOrWhiteSpace(item.ItemName) ? item.ItemName.Trim() : "Ürün " + prodCode;
-                if (prodName.Length > 490) prodName = prodName.Substring(0, 490);
-
-                double purPrice = item.UnitPrice > 0 ? item.UnitPrice : 0;
-                // Yeni satış fiyatı belirlenmişse onu kullan, yoksa %30 kâr marjı
-                double salePrice = (item.NewSalePrice.HasValue && item.NewSalePrice.Value > 0) ? item.NewSalePrice.Value : purPrice * 1.30;
-                double vat = item.VatPercent > 0 ? item.VatPercent : 20;
-
-                var existing = FindProductByNameOrCode(prodName, item.ItemCode);
-                if (existing != null)
+                // Mevcut faturanın üzerine yazma: eski fatura ve hareketleri aynı transaction içinde geri alınır
+                if (replaceInvoiceId.HasValue && replaceInvoiceId.Value > 0)
                 {
-                    item.ProductId = existing.Id;
-                    if (string.IsNullOrWhiteSpace(existing.Barcode) && !string.IsNullOrWhiteSpace(item.Barcode))
-                    {
-                        Database.Execute("UPDATE Products SET Barcode = @b WHERE Id = @id;", ("@b", item.Barcode), ("@id", existing.Id));
-                    }
+                    RollbackInvoiceInTransaction(conn, tx, replaceInvoiceId.Value);
                 }
-                else
-                {
-                    var newPid = Database.ExecuteScalar(@"
-INSERT INTO Products (Code, Barcode, Name, Category, Unit, OpeningStock, PurchasePrice, SalePrice, WholesalePrice, SpecialPrice, DiscountPercent, VatPercent, MinStockLevel, IsActive)
-VALUES (@c, @b, @n, 'Genel', @u, 0, @p, @sp, @wp, @xp, 0, @vat, 5, 1);
+
+                // Aynı tedarikçiden aynı numaralı fatura ikinci kez işlenemez (stok iki kez girmesin)
+                var dup = TxScalar(conn, tx,
+                    "SELECT TOP 1 Id FROM Invoices WHERE InvoiceNumber = @num AND COALESCE(AccountId, 0) = @acc;",
+                    ("@num", invoice.InvoiceNumber), ("@acc", invoice.AccountId));
+                if (dup != null && dup != DBNull.Value)
+                    throw new InvalidOperationException($"'{invoice.InvoiceNumber}' numaralı fatura bu cari için zaten kayıtlı. Aynı fatura ikinci kez işlenmedi.");
+
+                var invoiceIdObj = TxScalar(conn, tx, @"
+INSERT INTO Invoices (InvoiceNumber, InvoiceDate, InvoiceType, AccountId, WarehouseId, SubTotal, VatTotal, GrandTotal, PdfPath, PdfData, PdfSha256, Note, CustomizationId, Scenario, InvoiceKind, OrderNumber, OrderDate, RelatedStore, CargoId, ReferenceNo, IssueTime, CreatedAt)
+VALUES (@num, @date, @type, @accId, @wId, @sub, @vat, @grand, @pdf, @pdfData, @sha, @note, @cust, @scen, @kind, @ordNo, @ordDate, @store, @cargo, @ref, @time, @created);
 SELECT SCOPE_IDENTITY();",
-                        ("@c", prodCode),
-                        ("@b", (object?)item.Barcode ?? DBNull.Value),
-                        ("@n", prodName),
-                        ("@u", item.Unit),
-                        ("@p", purPrice),
-                        ("@sp", salePrice),
-                        ("@wp", purPrice * 1.15),
-                        ("@xp", purPrice * 1.20),
-                        ("@vat", vat)
-                    );
-                    item.ProductId = Convert.ToInt64(newPid);
-                }
-            }
-            else if (!string.IsNullOrWhiteSpace(item.Barcode))
-            {
-                // Mevcut ürünün barkodu boşsa faturadaki barkodla güncelle
-                Database.Execute("UPDATE Products SET Barcode = @b WHERE Id = @id AND (Barcode IS NULL OR Barcode = '');",
-                    ("@b", item.Barcode),
-                    ("@id", item.ProductId.Value)
-                );
-            }
-
-            string safeItemName = !string.IsNullOrWhiteSpace(item.ItemName) ? item.ItemName.Trim() : "Ürün";
-            if (safeItemName.Length > 490) safeItemName = safeItemName.Substring(0, 490);
-
-            Database.Execute(@"
-INSERT INTO InvoiceItems (InvoiceId, ProductId, [LineNo], Barcode, ItemCode, ItemName, Quantity, Unit, UnitPrice, DiscountPercent, DiscountAmount, VatPercent, VatAmount, OtherTaxes, LineTotal)
-VALUES (@invId, @pId, @lNo, @bar, @code, @name, @qty, @unit, @price, @discP, @discA, @vat, @vatAmt, @oth, @total);",
-                ("@invId", invoiceId),
-                ("@pId", (object?)item.ProductId ?? DBNull.Value),
-                ("@lNo", item.LineNo),
-                ("@bar", (object?)item.Barcode ?? DBNull.Value),
-                ("@code", (object?)item.ItemCode ?? DBNull.Value),
-                ("@name", safeItemName),
-                ("@qty", item.Quantity),
-                ("@unit", item.Unit),
-                ("@price", item.UnitPrice),
-                ("@discP", item.DiscountPercent),
-                ("@discA", item.DiscountAmount),
-                ("@vat", item.VatPercent),
-                ("@vatAmt", item.VatAmount),
-                ("@oth", item.OtherTaxes),
-                ("@total", item.LineTotal)
-            );
-
-            // Stok hareketi oluştur ve kullanıcının kararına göre ürün fiyatlarını güncelle
-            if (updateStock && item.ProductId.HasValue && item.ProductId.Value > 0)
-            {
-                // Eski stok ve fiyat bilgilerini oku
-                var existingProd = ProductService.GetById(item.ProductId.Value);
-                double oldStock = existingProd != null ? ProductService.GetStock(item.ProductId.Value) : 0;
-                double oldBuy = existingProd?.PurchasePrice ?? 0;
-                double oldSale = existingProd?.SalePrice ?? 0;
-                double finalSalePrice = oldSale;
-
-                Database.Execute(@"
-INSERT INTO StockMovements (MovementDate, ProductId, MovementType, Quantity, UnitPrice, DocumentNo, AccountId, WarehouseId, Note)
-VALUES (@date, @pid, 'Gelen', @qty, @price, @doc, @accId, @wId, @note);",
+                    ("@num", invoice.InvoiceNumber),
                     ("@date", invoice.InvoiceDate.ToString("yyyy-MM-dd")),
-                    ("@pid", item.ProductId.Value),
-                    ("@qty", item.Quantity),
-                    ("@price", item.UnitPrice),
-                    ("@doc", invoice.InvoiceNumber),
+                    ("@type", invoice.InvoiceType),
                     ("@accId", invoice.AccountId),
                     ("@wId", invoice.WarehouseId),
-                    ("@note", $"Fatura Girişi: {invoice.InvoiceNumber}")
-                );
+                    ("@sub", invoice.SubTotal),
+                    ("@vat", invoice.VatTotal),
+                    ("@grand", invoice.GrandTotal),
+                    ("@pdf", (object?)archivedPdfPath ?? (object?)invoice.PdfPath ?? DBNull.Value),
+                    ("@pdfData", DBNull.Value),
+                    ("@sha", (object?)pdfSha256 ?? DBNull.Value),
+                    ("@note", (object?)invoice.Note ?? DBNull.Value),
+                    ("@cust", (object?)invoice.CustomizationId ?? DBNull.Value),
+                    ("@scen", (object?)invoice.Scenario ?? DBNull.Value),
+                    ("@kind", (object?)invoice.InvoiceKind ?? DBNull.Value),
+                    ("@ordNo", (object?)invoice.OrderNumber ?? DBNull.Value),
+                    ("@ordDate", (object?)invoice.OrderDate ?? DBNull.Value),
+                    ("@store", (object?)invoice.RelatedStore ?? DBNull.Value),
+                    ("@cargo", (object?)invoice.CargoId ?? DBNull.Value),
+                    ("@ref", (object?)invoice.ReferenceNo ?? DBNull.Value),
+                    ("@time", (object?)invoice.IssueTime ?? DBNull.Value),
+                    ("@created", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
 
-                // Kullanıcının kararı:
-                // 1) "Satış Fiyatına Zam Yap": Hem Alış Fiyatı hem de Yeni Satış Fiyatı güncellenir
-                if (string.Equals(item.ActionDecision, "Satış Fiyatına Zam Yap", StringComparison.OrdinalIgnoreCase) ||
-                    (item.NewSalePrice.HasValue && item.NewSalePrice.Value > 0 && item.NewSalePrice.Value != oldSale))
-                {
-                    finalSalePrice = (item.NewSalePrice.HasValue && item.NewSalePrice.Value > 0) ? item.NewSalePrice.Value : oldSale;
-                    Database.Execute("UPDATE Products SET PurchasePrice = @p, SalePrice = @sp, WholesalePrice = @wp, SpecialPrice = @xp WHERE Id = @id;",
-                        ("@p", item.UnitPrice > 0 ? item.UnitPrice : oldBuy),
-                        ("@sp", finalSalePrice),
-                        ("@wp", (item.UnitPrice > 0 ? item.UnitPrice : oldBuy) * 1.15),
-                        ("@xp", (item.UnitPrice > 0 ? item.UnitPrice : oldBuy) * 1.20),
-                        ("@id", item.ProductId.Value)
-                    );
-                }
-                // 2) "Alış Fiyatını Güncelle": Sadece alış fiyatı güncellenir, satış fiyatı korunur
-                else if (string.Equals(item.ActionDecision, "Alış Fiyatını Güncelle", StringComparison.OrdinalIgnoreCase) ||
-                         string.IsNullOrWhiteSpace(item.ActionDecision)) // Varsayılan: alış fiyatını güncelle
-                {
-                    if (item.UnitPrice > 0)
-                    {
-                        Database.Execute("UPDATE Products SET PurchasePrice = @p WHERE Id = @id;",
-                            ("@p", item.UnitPrice),
-                            ("@id", item.ProductId.Value)
-                        );
-                    }
-                }
-                // 3) "Olduğu Gibi Al": Ürün kartının fiyatlarına dokunulmaz (eski alış ve satış korunur)
+                invoiceId = Convert.ToInt64(invoiceIdObj);
+                invoice.Id = invoiceId;
 
-                // Fiyat ve Stok Geçmişi (Tarihçe) Kaydet
-                double newStock = oldStock + item.Quantity;
                 string supplierName = "";
                 if (invoice.AccountId > 0)
                 {
-                    try
-                    {
-                        var acc = AccountService.GetById(invoice.AccountId);
-                        supplierName = acc?.Name ?? "";
-                    }
-                    catch { }
+                    var an = TxScalar(conn, tx, "SELECT Name FROM Accounts WHERE Id = @id;", ("@id", invoice.AccountId));
+                    supplierName = an?.ToString() ?? "";
                 }
 
-                ProductService.RecordPriceHistory(
-                    productId: item.ProductId.Value,
-                    docNo: invoice.InvoiceNumber,
-                    supplier: supplierName,
-                    oldStock: oldStock,
-                    addedStock: item.Quantity,
-                    newStock: newStock,
-                    oldBuy: oldBuy,
-                    newBuy: item.UnitPrice > 0 ? item.UnitPrice : oldBuy,
-                    oldSale: oldSale,
-                    newSale: finalSalePrice,
-                    note: $"Fatura Girişi: {invoice.InvoiceNumber} [{item.ActionDecision ?? "Normal"}]"
-                );
-            }
-        }
+                foreach (var item in invoice.Items)
+                {
+                    // Kullanıcı bu kalemi faturadan silmeyi / hariç tutmayı seçtiyse kaydetme
+                    if (string.Equals(item.ActionDecision, "Faturadan Sil", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(item.ActionDecision, "Sil", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
 
-        // 3. Cari hareketini oluştur (Alış faturası = Tedarikçiye borçlanma / Cari Hareketi)
-        if (updateAccountBalance && invoice.AccountId > 0 && invoice.GrandTotal > 0)
-        {
-            Database.Execute(@"
+                    item.InvoiceId = invoiceId;
+
+                    // Sistemde kayıtlı ürün yoksa önce eşleştir, yoksa otomatik ürün kartı oluştur
+                    if (!item.ProductId.HasValue || item.ProductId.Value <= 0)
+                    {
+                        string prodCode = !string.IsNullOrWhiteSpace(item.ItemCode)
+                            ? item.ItemCode.Trim()
+                            : "URN-" + DateTime.Now.ToString("yyyyMMddHHmmss") + "-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+                        if (prodCode.Length > 90) prodCode = prodCode.Substring(0, 90);
+
+                        string prodName = !string.IsNullOrWhiteSpace(item.ItemName) ? item.ItemName.Trim() : "Ürün " + prodCode;
+                        if (prodName.Length > 240) prodName = prodName.Substring(0, 240);
+
+                        double purPrice = item.UnitPrice > 0 ? item.UnitPrice : 0;
+                        double salePrice = (item.NewSalePrice.HasValue && item.NewSalePrice.Value > 0) ? item.NewSalePrice.Value : purPrice * 1.30;
+                        double vat = item.VatPercent > 0 ? item.VatPercent : 20;
+
+                        long? existingId = FindProductIdInTransaction(conn, tx, prodName, item.ItemCode);
+                        if (existingId.HasValue)
+                        {
+                            item.ProductId = existingId.Value;
+                            if (!string.IsNullOrWhiteSpace(item.Barcode))
+                            {
+                                TxExec(conn, tx, "UPDATE Products SET Barcode = @b WHERE Id = @id AND (Barcode IS NULL OR Barcode = '');",
+                                    ("@b", item.Barcode), ("@id", existingId.Value));
+                            }
+                        }
+                        else
+                        {
+                            var newPid = TxScalar(conn, tx, @"
+INSERT INTO Products (Code, Barcode, Name, Category, Unit, OpeningStock, PurchasePrice, SalePrice, WholesalePrice, SpecialPrice, DiscountPercent, VatPercent, MinStockLevel, IsActive)
+VALUES (@c, @b, @n, 'Genel', @u, 0, @p, @sp, @wp, @xp, 0, @vat, 5, 1);
+SELECT SCOPE_IDENTITY();",
+                                ("@c", prodCode),
+                                ("@b", (object?)item.Barcode ?? DBNull.Value),
+                                ("@n", prodName),
+                                ("@u", item.Unit),
+                                ("@p", purPrice),
+                                ("@sp", salePrice),
+                                ("@wp", purPrice * 1.15),
+                                ("@xp", purPrice * 1.20),
+                                ("@vat", vat));
+                            item.ProductId = Convert.ToInt64(newPid);
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(item.Barcode))
+                    {
+                        TxExec(conn, tx, "UPDATE Products SET Barcode = @b WHERE Id = @id AND (Barcode IS NULL OR Barcode = '');",
+                            ("@b", item.Barcode), ("@id", item.ProductId.Value));
+                    }
+
+                    string safeItemName = !string.IsNullOrWhiteSpace(item.ItemName) ? item.ItemName.Trim() : "Ürün";
+                    if (safeItemName.Length > 490) safeItemName = safeItemName.Substring(0, 490);
+
+                    TxExec(conn, tx, @"
+INSERT INTO InvoiceItems (InvoiceId, ProductId, [LineNo], Barcode, ItemCode, ItemName, Quantity, Unit, UnitPrice, DiscountPercent, DiscountAmount, VatPercent, VatAmount, OtherTaxes, LineTotal)
+VALUES (@invId, @pId, @lNo, @bar, @code, @name, @qty, @unit, @price, @discP, @discA, @vat, @vatAmt, @oth, @total);",
+                        ("@invId", invoiceId),
+                        ("@pId", (object?)item.ProductId ?? DBNull.Value),
+                        ("@lNo", item.LineNo),
+                        ("@bar", (object?)item.Barcode ?? DBNull.Value),
+                        ("@code", (object?)item.ItemCode ?? DBNull.Value),
+                        ("@name", safeItemName),
+                        ("@qty", item.Quantity),
+                        ("@unit", item.Unit),
+                        ("@price", item.UnitPrice),
+                        ("@discP", item.DiscountPercent),
+                        ("@discA", item.DiscountAmount),
+                        ("@vat", item.VatPercent),
+                        ("@vatAmt", item.VatAmount),
+                        ("@oth", item.OtherTaxes),
+                        ("@total", item.LineTotal));
+
+                    if (!updateStock || !item.ProductId.HasValue || item.ProductId.Value <= 0) continue;
+
+                    long pid = item.ProductId.Value;
+
+                    // Eski stok ve fiyatlar (aynı transaction içinde, aynı faturadaki önceki kalemler dahil)
+                    var priceRow = TxQuery(conn, tx, "SELECT PurchasePrice, SalePrice, Unit, PackSize FROM Products WHERE Id = @id;", ("@id", pid));
+                    double oldBuy = priceRow.Rows.Count > 0 ? Convert.ToDouble(priceRow.Rows[0]["PurchasePrice"]) : 0;
+                    double oldSale = priceRow.Rows.Count > 0 ? Convert.ToDouble(priceRow.Rows[0]["SalePrice"]) : 0;
+                    var stockObj = TxScalar(conn, tx, "SELECT CurrentStock FROM vw_ProductStock WHERE ProductId = @id;", ("@id", pid));
+                    double oldStock = stockObj != null && stockObj != DBNull.Value ? Convert.ToDouble(stockObj) : 0;
+                    double finalSalePrice = oldSale;
+
+                    // Birim dönüşümü: faturada koli/paket/düzine yazıyorsa stoğa ürünün temel birimi (adet) olarak girilir
+                    string? productUnit = priceRow.Rows.Count > 0 ? priceRow.Rows[0]["Unit"]?.ToString() : null;
+                    double packSize = priceRow.Rows.Count > 0 && priceRow.Rows[0]["PackSize"] != DBNull.Value ? Convert.ToDouble(priceRow.Rows[0]["PackSize"]) : 1;
+                    double factor = PackFactor(item.Unit, productUnit, packSize);
+                    double stockQty = item.Quantity * factor;
+
+                    // Maliyet: iskonto düşülmüş net birim fiyat
+                    double netUnit = NetUnitCost(item) / factor;
+
+                    TxExec(conn, tx, @"
+INSERT INTO StockMovements (MovementDate, ProductId, MovementType, Quantity, UnitPrice, DocumentNo, AccountId, WarehouseId, Note)
+VALUES (@date, @pid, 'Gelen', @qty, @price, @doc, @accId, @wId, @note);",
+                        ("@date", invoice.InvoiceDate.ToString("yyyy-MM-dd")),
+                        ("@pid", pid),
+                        ("@qty", stockQty),
+                        ("@price", netUnit),
+                        ("@doc", invoice.InvoiceNumber),
+                        ("@accId", invoice.AccountId),
+                        ("@wId", invoice.WarehouseId),
+                        ("@note", factor != 1 ? $"Fatura Girişi: {invoice.InvoiceNumber} ({item.Quantity:0.##} {item.Unit} x {factor:0.##})" : $"Fatura Girişi: {invoice.InvoiceNumber}"));
+
+                    // Kullanıcının kararı
+                    if (string.Equals(item.ActionDecision, "Satış Fiyatına Zam Yap", StringComparison.OrdinalIgnoreCase) ||
+                        (item.NewSalePrice.HasValue && item.NewSalePrice.Value > 0 && item.NewSalePrice.Value != oldSale))
+                    {
+                        finalSalePrice = (item.NewSalePrice.HasValue && item.NewSalePrice.Value > 0) ? item.NewSalePrice.Value : oldSale;
+                        double buy = netUnit > 0 ? netUnit : oldBuy;
+                        TxExec(conn, tx, "UPDATE Products SET PurchasePrice = @p, SalePrice = @sp, WholesalePrice = @wp, SpecialPrice = @xp WHERE Id = @id;",
+                            ("@p", buy), ("@sp", finalSalePrice), ("@wp", buy * 1.15), ("@xp", buy * 1.20), ("@id", pid));
+                    }
+                    else if (string.Equals(item.ActionDecision, "Alış Fiyatını Güncelle", StringComparison.OrdinalIgnoreCase) ||
+                             string.IsNullOrWhiteSpace(item.ActionDecision))
+                    {
+                        if (netUnit > 0)
+                        {
+                            TxExec(conn, tx, "UPDATE Products SET PurchasePrice = @p WHERE Id = @id;", ("@p", netUnit), ("@id", pid));
+                        }
+                    }
+                    // "Olduğu Gibi Al": ürün kartının fiyatlarına dokunulmaz
+
+                    TxExec(conn, tx, @"
+INSERT INTO ProductPriceHistory (ProductId, ChangeDate, DocumentNo, SupplierName, OldStock, AddedStock, NewStock, OldPurchasePrice, NewPurchasePrice, OldSalePrice, NewSalePrice, Note)
+VALUES (@pid, @dt, @doc, @sup, @oldSt, @addSt, @newSt, @oldB, @newB, @oldS, @newS, @note);",
+                        ("@pid", pid),
+                        ("@dt", DateTime.Now.ToString("yyyy-MM-dd HH:mm")),
+                        ("@doc", invoice.InvoiceNumber),
+                        ("@sup", supplierName),
+                        ("@oldSt", oldStock),
+                        ("@addSt", stockQty),
+                        ("@newSt", oldStock + stockQty),
+                        ("@oldB", oldBuy),
+                        ("@newB", netUnit > 0 ? netUnit : oldBuy),
+                        ("@oldS", oldSale),
+                        ("@newS", finalSalePrice),
+                        ("@note", $"Fatura Girişi: {invoice.InvoiceNumber} [{item.ActionDecision ?? "Normal"}]"));
+                }
+
+                // Cari hareketi (Alış faturası = tedarikçiye borçlanma)
+                if (updateAccountBalance && invoice.AccountId > 0 && invoice.GrandTotal > 0)
+                {
+                    TxExec(conn, tx, @"
 INSERT INTO AccountMovements (MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note)
 VALUES (@date, @accId, 'Alış', @doc, @amt, 'Fatura', 'Fatura Cari Kaydı', @note);",
-                ("@date", invoice.InvoiceDate.ToString("yyyy-MM-dd")),
-                ("@accId", invoice.AccountId),
-                ("@doc", invoice.InvoiceNumber),
-                ("@amt", invoice.GrandTotal),
-                ("@note", $"E-Fatura / Alış Faturası Girişi (Toplam: {invoice.GrandTotal:N2} ₺)")
-            );
+                        ("@date", invoice.InvoiceDate.ToString("yyyy-MM-dd")),
+                        ("@accId", invoice.AccountId),
+                        ("@doc", invoice.InvoiceNumber),
+                        ("@amt", invoice.GrandTotal),
+                        ("@note", $"E-Fatura / Alış Faturası Girişi (Toplam: {invoice.GrandTotal:N2} ₺)"));
+                }
+
+                tx.Commit();
+            }
+            catch
+            {
+                try { tx.Rollback(); } catch { }
+                // İşlem geri alındı: arşive kopyalanan PDF yetim kalmasın
+                if (archivedPdfPath != null && archiveCreatedNew)
+                {
+                    try { File.Delete(archivedPdfPath); } catch { }
+                }
+                throw;
+            }
         }
 
         AuditLogService.Log(
@@ -264,6 +284,122 @@ VALUES (@date, @accId, 'Alış', @doc, @amt, 'Fatura', 'Fatura Cari Kaydı', @no
         );
 
         return invoiceId;
+    }
+
+    private static readonly HashSet<string> PackUnitCodes = new(StringComparer.OrdinalIgnoreCase)
+        { "BX", "CT", "CS", "PK", "PA", "KOLI", "KOLİ", "PAKET", "KUTU", "KOLİ (BX)" };
+
+    /// <summary>Faturadaki birimi ürünün temel birimine çeviren çarpan (koli → adet). Tanımsızsa 1.</summary>
+    private static double PackFactor(string? invoiceUnit, string? productUnit, double packSize)
+    {
+        if (string.IsNullOrWhiteSpace(invoiceUnit)) return 1;
+        string u = invoiceUnit.Trim();
+        if (!string.IsNullOrWhiteSpace(productUnit) && string.Equals(productUnit.Trim(), u, StringComparison.OrdinalIgnoreCase)) return 1;
+        if (u.Equals("DZN", StringComparison.OrdinalIgnoreCase) || u.Equals("DÜZİNE", StringComparison.OrdinalIgnoreCase) || u.Equals("DUZINE", StringComparison.OrdinalIgnoreCase)) return 12;
+        if (PackUnitCodes.Contains(u) && packSize > 1) return packSize;
+        return 1;
+    }
+
+    /// <summary>İskonto düşülmüş net birim maliyet (KDV hariç).</summary>
+    private static double NetUnitCost(InvoiceItem item)
+    {
+        if (item.UnitPrice <= 0) return 0;
+        if (item.DiscountPercent > 0) return item.UnitPrice * (1 - item.DiscountPercent / 100.0);
+        if (item.DiscountAmount > 0 && item.Quantity > 0) return Math.Max(0, (item.UnitPrice * item.Quantity - item.DiscountAmount) / item.Quantity);
+        return item.UnitPrice;
+    }
+
+    // ---- Transaction içi yardımcılar ----
+
+    private static SqlCommand TxCmd(SqlConnection conn, SqlTransaction tx, string sql, (string Name, object? Value)[] p)
+    {
+        var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = Database.NormalizeSql(sql);
+        foreach (var x in p)
+        {
+            if (x.Value is byte[] || string.Equals(x.Name, "@pdfData", StringComparison.OrdinalIgnoreCase))
+            {
+                // İkili alan: boş (NULL) bile olsa tür açıkça VarBinary verilmeli, yoksa SQL nvarchar sanıp hata verir
+                cmd.Parameters.Add(new SqlParameter(x.Name, System.Data.SqlDbType.VarBinary, -1) { Value = x.Value ?? DBNull.Value });
+            }
+            else
+            {
+                cmd.Parameters.AddWithValue(x.Name, x.Value ?? DBNull.Value);
+            }
+        }
+        return cmd;
+    }
+
+    private static int TxExec(SqlConnection conn, SqlTransaction tx, string sql, params (string Name, object? Value)[] p)
+    {
+        using var cmd = TxCmd(conn, tx, sql, p);
+        return cmd.ExecuteNonQuery();
+    }
+
+    private static object? TxScalar(SqlConnection conn, SqlTransaction tx, string sql, params (string Name, object? Value)[] p)
+    {
+        using var cmd = TxCmd(conn, tx, sql, p);
+        return cmd.ExecuteScalar();
+    }
+
+    private static DataTable TxQuery(SqlConnection conn, SqlTransaction tx, string sql, params (string Name, object? Value)[] p)
+    {
+        using var cmd = TxCmd(conn, tx, sql, p);
+        using var r = cmd.ExecuteReader();
+        var t = new DataTable();
+        t.Load(r);
+        return t;
+    }
+
+    /// <summary>
+    /// Ürün eşleştirme: önce ürün kodu, sonra tam ad. Benzer ad (bulanık) eşleşmesi yalnızca tek aday varsa kullanılır;
+    /// birden fazla aday varsa yanlış karta stok girmesin diye eşleşme yapılmaz ve yeni kart açılır.
+    /// </summary>
+    private static long? FindProductIdInTransaction(SqlConnection conn, SqlTransaction tx, string name, string? itemCode)
+    {
+        if (!string.IsNullOrWhiteSpace(itemCode))
+        {
+            var byCode = TxQuery(conn, tx, "SELECT TOP 1 Id FROM Products WHERE Code = @c AND IsActive = 1 ORDER BY Id;", ("@c", itemCode.Trim()));
+            if (byCode.Rows.Count > 0) return Convert.ToInt64(byCode.Rows[0]["Id"]);
+        }
+
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        string trimmed = name.Trim();
+
+        var exact = TxQuery(conn, tx, "SELECT TOP 1 Id FROM Products WHERE Name = @n AND IsActive = 1 ORDER BY Id;", ("@n", trimmed));
+        if (exact.Rows.Count > 0) return Convert.ToInt64(exact.Rows[0]["Id"]);
+
+        var fuzzy = TxQuery(conn, tx, "SELECT TOP 2 Id FROM Products WHERE Name LIKE @like AND IsActive = 1 ORDER BY Id;",
+            ("@like", $"%{trimmed.Substring(0, Math.Min(25, trimmed.Length))}%"));
+        return fuzzy.Rows.Count == 1 ? Convert.ToInt64(fuzzy.Rows[0]["Id"]) : null;
+    }
+
+    /// <summary>Faturanın stok ve cari hareketlerini ve kendisini aynı transaction içinde geri alır.</summary>
+    private static (string InvoiceNumber, int StockDeleted, int AccountDeleted)? RollbackInvoiceInTransaction(SqlConnection conn, SqlTransaction tx, long invoiceId)
+    {
+        var dt = TxQuery(conn, tx, "SELECT InvoiceNumber, AccountId FROM Invoices WHERE Id = @id;", ("@id", invoiceId));
+        if (dt.Rows.Count == 0) return null;
+
+        string invNo = dt.Rows[0]["InvoiceNumber"]?.ToString() ?? "";
+        long accId = dt.Rows[0]["AccountId"] == DBNull.Value ? 0 : Convert.ToInt64(dt.Rows[0]["AccountId"]);
+
+        int stockDeleted = 0, accDeleted = 0;
+        if (!string.IsNullOrWhiteSpace(invNo))
+        {
+            // Yalnızca BU faturanın yazdığı hareketler: aynı belge no + aynı cari + fatura kaynaklı kayıt
+            stockDeleted = TxExec(conn, tx,
+                "DELETE FROM StockMovements WHERE DocumentNo = @doc AND COALESCE(AccountId, 0) = @acc AND Note LIKE N'Fatura Girişi:%';",
+                ("@doc", invNo), ("@acc", accId));
+            accDeleted = TxExec(conn, tx,
+                "DELETE FROM AccountMovements WHERE DocumentNo = @doc AND AccountId = @acc AND TransactionType IN (N'Alış', N'Ödeme');",
+                ("@doc", invNo), ("@acc", accId));
+        }
+
+        TxExec(conn, tx, "DELETE FROM InvoicePayments WHERE InvoiceId = @id;", ("@id", invoiceId));
+        TxExec(conn, tx, "DELETE FROM InvoiceItems WHERE InvoiceId = @id;", ("@id", invoiceId));
+        TxExec(conn, tx, "DELETE FROM Invoices WHERE Id = @id;", ("@id", invoiceId));
+        return (invNo, stockDeleted, accDeleted);
     }
 
     /// <summary>
@@ -392,37 +528,44 @@ ORDER BY ItemCount DESC, HasPdf DESC, i.Id DESC;", ("@num", invNo));
     {
         try
         {
-            var dt = Database.Query("SELECT InvoiceNumber, GrandTotal, AccountId, InvoiceType FROM Invoices WHERE Id = @id;", ("@id", invoiceId));
-            if (dt.Rows.Count == 0)
-                return (false, "Fatura bulunamadı.");
+            string invNo; double total; string invType;
+            int stockMovesDeleted = 0, accountMovesDeleted = 0;
 
-            string invNo = dt.Rows[0]["InvoiceNumber"]?.ToString() ?? "";
-            double total = Convert.ToDouble(dt.Rows[0]["GrandTotal"] == DBNull.Value ? 0 : dt.Rows[0]["GrandTotal"]);
-            long accId = Convert.ToInt64(dt.Rows[0]["AccountId"] == DBNull.Value ? 0 : dt.Rows[0]["AccountId"]);
-            string invType = dt.Rows[0]["InvoiceType"]?.ToString() ?? "Fatura";
-
-            int stockMovesDeleted = 0;
-            int accountMovesDeleted = 0;
-
-            if (rollbackMovements && !string.IsNullOrWhiteSpace(invNo))
+            using (var conn = Database.Open())
+            using (var tx = conn.BeginTransaction())
             {
-                // 1. Faturanın soktuğu veya çıkardığı tüm stok hareketlerini geri al (sil)
-                var dtSm = Database.Query("SELECT COUNT(*) AS Cnt FROM StockMovements WHERE DocumentNo = @doc;", ("@doc", invNo));
-                stockMovesDeleted = dtSm.Rows.Count > 0 ? Convert.ToInt32(dtSm.Rows[0]["Cnt"]) : 0;
-                Database.Execute("DELETE FROM StockMovements WHERE DocumentNo = @doc;", ("@doc", invNo));
+                try
+                {
+                    var dt = TxQuery(conn, tx, "SELECT InvoiceNumber, GrandTotal, InvoiceType FROM Invoices WHERE Id = @id;", ("@id", invoiceId));
+                    if (dt.Rows.Count == 0)
+                        return (false, "Fatura bulunamadı.");
 
-                // 2. Faturanın cariye işlediği borç/alacak hareketlerini geri al (sil)
-                var dtAm = Database.Query("SELECT COUNT(*) AS Cnt FROM AccountMovements WHERE DocumentNo = @doc;", ("@doc", invNo));
-                accountMovesDeleted = dtAm.Rows.Count > 0 ? Convert.ToInt32(dtAm.Rows[0]["Cnt"]) : 0;
-                Database.Execute("DELETE FROM AccountMovements WHERE DocumentNo = @doc;", ("@doc", invNo));
+                    invNo = dt.Rows[0]["InvoiceNumber"]?.ToString() ?? "";
+                    total = Convert.ToDouble(dt.Rows[0]["GrandTotal"] == DBNull.Value ? 0 : dt.Rows[0]["GrandTotal"]);
+                    invType = dt.Rows[0]["InvoiceType"]?.ToString() ?? "Fatura";
+
+                    if (rollbackMovements)
+                    {
+                        // Hareketler, fatura ve ödemeler tek transaction içinde ve yalnızca bu faturaya ait olanlar silinir
+                        var res = RollbackInvoiceInTransaction(conn, tx, invoiceId);
+                        stockMovesDeleted = res?.StockDeleted ?? 0;
+                        accountMovesDeleted = res?.AccountDeleted ?? 0;
+                    }
+                    else
+                    {
+                        TxExec(conn, tx, "DELETE FROM InvoicePayments WHERE InvoiceId = @id;", ("@id", invoiceId));
+                        TxExec(conn, tx, "DELETE FROM InvoiceItems WHERE InvoiceId = @id;", ("@id", invoiceId));
+                        TxExec(conn, tx, "DELETE FROM Invoices WHERE Id = @id;", ("@id", invoiceId));
+                    }
+
+                    tx.Commit();
+                }
+                catch
+                {
+                    try { tx.Rollback(); } catch { }
+                    throw;
+                }
             }
-
-            // 3. Fatura ödeme ve kalemlerini sil
-            Database.Execute("DELETE FROM InvoicePayments WHERE InvoiceId = @id;", ("@id", invoiceId));
-            Database.Execute("DELETE FROM InvoiceItems WHERE InvoiceId = @id;", ("@id", invoiceId));
-
-            // 4. Faturanın kendisini sil
-            Database.Execute("DELETE FROM Invoices WHERE Id = @id;", ("@id", invoiceId));
 
             AuditLogService.Log(
                 "Fatura",
@@ -629,29 +772,12 @@ ORDER BY inv.InvoiceDate DESC, inv.Id DESC;",
     }
 
     /// <summary>
-    /// Diskte olup veritabanında PdfData'sı henüz boş olan eski faturaları otomatik olarak veritabanına gömer.
+    /// Eski kayıtlardaki PDF verisini (veritabanına gömülü veya arşiv dışı) PDF arşiv klasörüne taşır.
     /// </summary>
     public static void MigrateExistingPdfsToDatabase()
     {
-        try
-        {
-            var dt = Database.Query("SELECT Id, InvoiceNumber, PdfPath FROM Invoices WHERE PdfData IS NULL AND PdfPath IS NOT NULL AND PdfPath != '';");
-            foreach (DataRow r in dt.Rows)
-            {
-                long id = Convert.ToInt64(r["Id"]);
-                string? path = r["PdfPath"]?.ToString();
-                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                {
-                    try
-                    {
-                        byte[] bytes = File.ReadAllBytes(path);
-                        Database.Execute("UPDATE Invoices SET PdfData = @data WHERE Id = @id;", ("@data", bytes), ("@id", id));
-                    }
-                    catch { }
-                }
-            }
-        }
-        catch { }
+        // Eski ad korunur (çağıran kodu bozmamak için): artık PDF'ler veritabanına GÖMÜLMEZ, arşiv klasörüne taşınır.
+        PdfArchiveService.MigrateLegacy();
     }
 
     /// <summary>

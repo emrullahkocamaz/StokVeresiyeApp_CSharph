@@ -1,5 +1,4 @@
 using System.Data;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Services;
@@ -8,11 +7,11 @@ namespace StokVeresiyeApp.Forms;
 
 public class BulkPriceUpdateDialog : BaseModernForm
 {
-    private readonly KryptonComboBox _cmbCategory = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonComboBox _cmbTargetPrice = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonComboBox _cmbActionType = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonTextBox _txtValue = new() { Text = "10" };
-    private readonly KryptonComboBox _cmbRounding = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox _cmbCategory = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox _cmbTargetPrice = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox _cmbActionType = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TextBox _txtValue = new() { Text = "10" };
+    private readonly ComboBox _cmbRounding = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly DataGridView _gridPreview = new();
     private readonly Label _lblSummary = new();
     private DataTable? _previewDt;
@@ -55,7 +54,7 @@ public class BulkPriceUpdateDialog : BaseModernForm
 
         // Canlı Önizleme Butonu & Özet Paneli
         var pnlPreviewBar = new Panel { Height = 45, Dock = DockStyle.Fill };
-        var btnPreview = UITheme.CreateKryptonButton("🔍 Değişiklikleri Önizle", Color.FromArgb(79, 70, 229), Color.White, (s, e) => CalculatePreview(), 180, 36);
+        var btnPreview = UITheme.CreateButton("🔍 Değişiklikleri Önizle", Color.FromArgb(79, 70, 229), Color.White, (s, e) => CalculatePreview(), 180, 36);
         btnPreview.Dock = DockStyle.Left;
 
         _lblSummary.Text = "Henüz önizleme hesaplanmadı. Lütfen oran girip 'Değişiklikleri Önizle' butonuna tıklayınız.";
@@ -77,8 +76,7 @@ public class BulkPriceUpdateDialog : BaseModernForm
         AddRow("Önizleme Listesi", pnlGridContainer, 290);
 
         BtnSave.Text = "⚡ Toplu Fiyatları Uygula ve Kaydet";
-        BtnSave.StateCommon.Back.Color1 = Color.FromArgb(16, 185, 129);
-        BtnSave.StateCommon.Back.Color2 = Color.FromArgb(16, 185, 129);
+        BtnSave.BackColor = Color.FromArgb(16, 185, 129);
         BtnSave.Click += ApplyBulkUpdateClick;
 
         // Olaylar

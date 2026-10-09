@@ -1301,10 +1301,11 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
         invoice.VatTotal = vatTotal;
         invoice.GrandTotal = subTotal + vatTotal;
 
-        // Mükerrer Fatura Kontrolü ve Güncelleme İşlemi
+        // Mükerrer Fatura Kontrolü ve Güncelleme İşlemi (eski fatura, yenisi kaydedilirken aynı transaction içinde geri alınır)
+        long? replaceInvoiceId = null;
         if (_targetUpdateInvoiceId.HasValue && _targetUpdateInvoiceId.Value > 0)
         {
-            InvoiceService.DeleteInvoice(_targetUpdateInvoiceId.Value);
+            replaceInvoiceId = _targetUpdateInvoiceId.Value;
         }
         else
         {
@@ -1321,7 +1322,7 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
                 );
                 if (askSave == DialogResult.Yes)
                 {
-                    InvoiceService.DeleteInvoice(existId);
+                    replaceInvoiceId = existId;
                 }
                 else
                 {
@@ -1332,7 +1333,7 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
 
         try
         {
-            InvoiceService.SaveInvoice(invoice, _chkUpdateStock.Checked, _chkUpdateAccount.Checked);
+            InvoiceService.SaveInvoice(invoice, _chkUpdateStock.Checked, _chkUpdateAccount.Checked, replaceInvoiceId);
 
             MessageBox.Show(
                 $"Fatura ({invoice.InvoiceNumber}) başarıyla sisteme kaydedildi ve işlendi!\n\n" +
@@ -1348,6 +1349,9 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information
             );
+
+            if (!string.IsNullOrWhiteSpace(invoice.PdfPath))
+                PdfArchiveService.OfferDriveCopy(this, new[] { invoice.PdfPath });
 
             DialogResult = DialogResult.OK;
             Close();

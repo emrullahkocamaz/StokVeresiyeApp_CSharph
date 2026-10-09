@@ -21,8 +21,7 @@ public class User
     }
 
     public bool IsSuperUser => Role.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase) || 
-                               Username.Equals("super", StringComparison.OrdinalIgnoreCase) ||
-                               Username.Equals("superuser", StringComparison.OrdinalIgnoreCase);
+                               Username.Equals("super", StringComparison.OrdinalIgnoreCase);
 
     public bool HasPermission(string permissionKey)
     {
@@ -124,6 +123,7 @@ public static class UserPermissions
     public const string FinanceCurrency = "Finance.Currency";           // Canlı Döviz Kurları & Çevirici
 
     // === 6. HIZLI SATIŞ & KASA (POS) ===
+    public const string SalesOverride = "Sales.Override";               // Satışta stok yetersizliği ve kredi limiti uyarısını onaylayıp aşma
     public const string QuickSale = "QuickSale";                       // Hızlı Satış ve Fiş Kesme
     public const string QuickBuy = "Sales.QuickBuy";                   // Hızlı Alış & İade İşlemleri
     public const string ParkedSales = "ParkedSales";                   // Fiş / Sepet Bekletme (Askıya Alma & Çağırma)
@@ -199,6 +199,7 @@ public static class UserPermissions
         new() { Key = FinanceCurrency, Category = "💳 Kasa, Tahsilat & Finans", Title = "Canlı Döviz Kurları & Çevirici", Description = "TCMB canlı kurlarını takip etme ve dövizli hesaplama" },
 
         // 6. Hızlı Satış & POS
+        new() { Key = SalesOverride, Category = "⚡ Hızlı Satış & Kasa (POS)", Title = "Satışta Stok / Kredi Limiti Uyarısını Aşma", Description = "Stok yetersizken veya müşteri kredi limitini aşarken satışı onaylayabilme", IsDeleteOrCritical = true },
         new() { Key = QuickSale, Category = "⚡ Hızlı Satış & Kasa (POS)", Title = "Hızlı Satış ve Fiş Kesme", Description = "Barkodlu market/mağaza perakende satış ekranı" },
         new() { Key = QuickBuy, Category = "⚡ Hızlı Satış & Kasa (POS)", Title = "Hızlı Alış & İade İşlemleri", Description = "Kasadan anında müşteri iadesi veya hızlı alış yapma" },
         new() { Key = ParkedSales, Category = "⚡ Hızlı Satış & Kasa (POS)", Title = "Fiş Bekletme (Askıya Alma & Çağırma)", Description = "Sıradaki müşteriye geçmek için sepeti askıya alma" },

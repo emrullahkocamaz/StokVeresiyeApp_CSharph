@@ -23,6 +23,14 @@ public class CloudBackupConfig
     public bool BackupOnClosing { get; set; } = true;
     public bool SendToGmail { get; set; } = false;
     public DateTime? LastBackupDate { get; set; }
+
+    // PDF fatura arşivi (yalnızca PDF'ler; veritabanı yedeğinden ayrıdır)
+    public string PdfArchiveDirectory { get; set; } = "";     // asıl arşiv
+    public string PdfPcBackupDirectory { get; set; } = "";    // bilgisayardaki ikinci kopya
+    public string PdfDriveDirectory { get; set; } = "";       // Google Drive masaüstü klasörü
+    public string PdfDriveMode { get; set; } = "Ask";         // Ask = her faturada sor, Always = otomatik, Never = sorma
+    public bool DailyPdfBackupEnabled { get; set; } = true;
+    public DateTime? LastPdfBackupDate { get; set; }
 }
 
 public class BackupFileInfo

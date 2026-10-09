@@ -16,24 +16,26 @@ public class ProductService
         ProductId,
         SUM(CASE 
             WHEN MovementType IN ('Gelen', 'İade Giriş') AND WarehouseId = $wId THEN Quantity 
-            WHEN MovementType = 'Transfer Giriş' AND TargetWarehouseId = $wId THEN Quantity
+            WHEN MovementType = 'Transfer Giriş' AND WarehouseId = $wId THEN Quantity
             ELSE 0 END) AS Gelen,
         SUM(CASE 
-            WHEN MovementType IN ('Satılan', 'Çıkış', 'Fire', 'Transfer Çıkış') AND WarehouseId = $wId THEN Quantity 
+            WHEN MovementType IN ('Satılan', 'Satış', 'Giden', 'Çıkış', 'Fire', 'Fire / Zayi', 'Transfer Çıkış') AND WarehouseId = $wId THEN Quantity 
             ELSE 0 END) AS Satilan,
         SUM(CASE 
-            WHEN (MovementType IN ('Gelen', 'İade Giriş') AND WarehouseId = $wId) OR (MovementType = 'Transfer Giriş' AND TargetWarehouseId = $wId) THEN Quantity 
-            WHEN (MovementType IN ('Satılan', 'Çıkış', 'Fire', 'Transfer Çıkış') AND WarehouseId = $wId) THEN -Quantity 
+            WHEN (MovementType IN ('Gelen', 'İade Giriş') AND WarehouseId = $wId) OR (MovementType = 'Transfer Giriş' AND WarehouseId = $wId) THEN Quantity 
+            WHEN (MovementType IN ('Satılan', 'Satış', 'Giden', 'Çıkış', 'Fire', 'Fire / Zayi', 'Transfer Çıkış') AND WarehouseId = $wId) THEN -Quantity 
             ELSE 0 END) AS NetHareket
     FROM StockMovements
-    WHERE WarehouseId = $wId OR TargetWarehouseId = $wId
+    WHERE WarehouseId = $wId
     GROUP BY ProductId"
             : @"
     SELECT 
         ProductId,
         SUM(CASE WHEN MovementType IN ('Gelen', 'İade Giriş') THEN Quantity ELSE 0 END) AS Gelen,
-        SUM(CASE WHEN MovementType IN ('Satılan', 'Çıkış', 'Fire') THEN Quantity ELSE 0 END) AS Satilan,
-        SUM(CASE WHEN MovementType IN ('Gelen', 'İade Giriş') THEN Quantity ELSE -Quantity END) AS NetHareket
+        SUM(CASE WHEN MovementType IN ('Satılan', 'Satış', 'Giden', 'Çıkış', 'Fire', 'Fire / Zayi') THEN Quantity ELSE 0 END) AS Satilan,
+        SUM(CASE WHEN MovementType IN ('Gelen', 'İade Giriş', 'Transfer Giriş') THEN Quantity
+                 WHEN MovementType IN ('Satılan', 'Satış', 'Giden', 'Çıkış', 'Fire', 'Fire / Zayi', 'Transfer Çıkış') THEN -Quantity
+                 ELSE 0 END) AS NetHareket
     FROM StockMovements
     GROUP BY ProductId";
 
@@ -140,6 +142,7 @@ SELECT
              DiscountPercent = Convert.ToDouble(r["DiscountPercent"]),
              VatPercent = Convert.ToDouble(r["VatPercent"]),
              MinStockLevel = Convert.ToDouble(r["MinStockLevel"]),
+             PackSize = r.Table.Columns.Contains("PackSize") && r["PackSize"] != DBNull.Value ? Convert.ToDouble(r["PackSize"]) : 1,
              WholesalePrice = r.Table.Columns.Contains("WholesalePrice") && r["WholesalePrice"] != DBNull.Value ? Convert.ToDouble(r["WholesalePrice"]) : 0,
              SpecialPrice = r.Table.Columns.Contains("SpecialPrice") && r["SpecialPrice"] != DBNull.Value ? Convert.ToDouble(r["SpecialPrice"]) : 0,
              ExpiryDate = r.Table.Columns.Contains("ExpiryDate") ? r["ExpiryDate"]?.ToString() : null,
@@ -167,7 +170,7 @@ SELECT
 SELECT COALESCE(SUM(
      CASE 
          WHEN MovementType IN ('Gelen', 'İade Giriş', 'Transfer Giriş') THEN Quantity
-         WHEN MovementType IN ('Satılan', 'Fire / Zayi', 'Çıkış', 'Transfer Çıkış') THEN -Quantity
+         WHEN MovementType IN ('Satılan', 'Satış', 'Giden', 'Fire', 'Fire / Zayi', 'Çıkış', 'Transfer Çıkış') THEN -Quantity
          ELSE 0 
      END
 ), 0)
@@ -600,12 +603,16 @@ WHERE 1=1
         string docNo, 
         string note,
         string? dueDate = null,
-        long? warehouseId = null)
+        long? warehouseId = null,
+        SaleGuardOptions? guard = null)
     {
         using var conn = Database.Open();
         using var tx = conn.BeginTransaction();
         try
         {
+            SaleGuard.Enforce(conn, tx, operationType, accountId, new[] { (productId, quantity) },
+                SaleGuard.CreditPortion(paymentMethod, totalAmount, 0, false), guard);
+
             long effectiveWarehouseId = warehouseId.HasValue && warehouseId.Value > 0
                 ? warehouseId.Value
                 : (WarehouseService.GetDefaultWarehouse()?.Id ?? 1);
@@ -670,6 +677,24 @@ VALUES(@d, @a, @t, @doc, @amt, @m, @cb, @n);
                     cmdPay.ExecuteNonQuery();
                 }
             }
+            else if (paymentMethod != "Veresiye (Açık Hesap)")
+            {
+                // Cari seçilmemiş (perakende) peşin satış/alış: kasa hareketi AccountId = 0 ile yazılır, Z raporu bunu okur
+                string retailOffset = operationType == "Satış" ? "Tahsilat" : "Ödeme";
+                using var cmdRetail = conn.CreateCommand();
+                cmdRetail.Transaction = tx;
+                cmdRetail.CommandText = @"
+INSERT INTO AccountMovements(MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note)
+VALUES(@d, 0, @t, @doc, @amt, @m, @cb, @n);";
+                cmdRetail.Parameters.AddWithValue("@d", date.ToString("yyyy-MM-dd"));
+                cmdRetail.Parameters.AddWithValue("@t", retailOffset);
+                cmdRetail.Parameters.AddWithValue("@doc", docNo ?? (object)DBNull.Value);
+                cmdRetail.Parameters.AddWithValue("@amt", totalAmount);
+                cmdRetail.Parameters.AddWithValue("@m", paymentMethod);
+                cmdRetail.Parameters.AddWithValue("@cb", paymentMethod == "Havale/EFT" ? "Banka Hesabı" : (paymentMethod == "Kredi Kartı" ? "POS / Banka" : "Merkez Kasa"));
+                cmdRetail.Parameters.AddWithValue("@n", $"Perakende {retailOffset} ({paymentMethod}) - {docNo}");
+                cmdRetail.ExecuteNonQuery();
+            }
 
             tx.Commit();
         }
@@ -698,12 +723,15 @@ VALUES(@d, @a, @t, @doc, @amt, @m, @cb, @n);
         string docNo,
         string note,
         string? dueDate = null,
-        long? warehouseId = null)
+        long? warehouseId = null,
+        SaleGuardOptions? guard = null)
     {
         using var conn = Database.Open();
         using var tx = conn.BeginTransaction();
         try
         {
+            SaleGuard.Enforce(conn, tx, operationType, accountId, new[] { (productId, quantity) }, creditAmount, guard);
+
             long effectiveWarehouseId = warehouseId.HasValue && warehouseId.Value > 0
                 ? warehouseId.Value
                 : (WarehouseService.GetDefaultWarehouse()?.Id ?? 1);
@@ -873,7 +901,8 @@ VALUES(@d, 0, @t, @doc, @amt, 'Havale/EFT', 'Banka Hesabı', @n);";
         double cashAmount = 0,
         double cardAmount = 0,
         double transferAmount = 0,
-        double creditAmount = 0)
+        double creditAmount = 0,
+        SaleGuardOptions? guard = null)
     {
         if (items.Count == 0 || items.Any(item => item.ProductId <= 0 || item.Quantity <= 0))
         {
@@ -891,6 +920,9 @@ VALUES(@d, 0, @t, @doc, @amt, 'Havale/EFT', 'Banka Hesabı', @n);";
         using var tx = conn.BeginTransaction();
         try
         {
+            SaleGuard.Enforce(conn, tx, operationType, accountId, items.Select(i => (i.ProductId, i.Quantity)),
+                SaleGuard.CreditPortion(paymentMethod, totalAmount, creditAmount, isSplitPayment), guard);
+
             long effectiveWarehouseId = warehouseId.HasValue && warehouseId.Value > 0
                 ? warehouseId.Value
                 : (WarehouseService.GetDefaultWarehouse()?.Id ?? 1);
@@ -940,7 +972,7 @@ VALUES(@d, @a, @t, @doc, @amt, @m, 'Merkez Kasa', @n, @due);";
                 AddBatchPaymentMovement(conn, tx, date, accountId, offsetType, docNo, cardAmount, "Kredi Kartı", "POS / Banka", note);
                 AddBatchPaymentMovement(conn, tx, date, accountId, offsetType, docNo, transferAmount, "Havale/EFT", "Banka Hesabı", note);
             }
-            else if (accountId > 0 && paymentMethod != "Veresiye (Açık Hesap)")
+            else if (paymentMethod != "Veresiye (Açık Hesap)")
             {
                 AddBatchPaymentMovement(
                     conn, tx, date, accountId, offsetType, docNo, totalAmount,
@@ -1087,8 +1119,8 @@ public class DashboardService
         // Stok Özeti
         var stockDt = Database.Query(@"
 SELECT 
-    COALESCE(SUM(p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)), 0) AS TotalStockQty,
-    COALESCE(SUM((p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) * CASE WHEN p.SalePrice > 0 THEN p.SalePrice ELSE (p.PurchasePrice * (1 - p.DiscountPercent/100.0) * (1 + p.VatPercent/100.0)) END), 0) AS TotalStockVal,
+    COALESCE(SUM((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)), 0) AS TotalStockQty,
+    COALESCE(SUM(((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) * CASE WHEN p.SalePrice > 0 THEN p.SalePrice ELSE (p.PurchasePrice * (1 - p.DiscountPercent/100.0) * (1 + p.VatPercent/100.0)) END), 0) AS TotalStockVal,
     COUNT(p.Id) AS ActiveProducts
 FROM Products p 
 WHERE p.IsActive = 1
@@ -1145,14 +1177,9 @@ WHERE MovementDate >= $today
 
         // Kritik Stok Sayısı
         var critDt = Database.Query(@"
-SELECT COUNT(*) FROM (
-    SELECT p.Id 
-    FROM Products p 
-    LEFT JOIN StockMovements sm ON sm.ProductId = p.Id 
-    WHERE p.IsActive = 1 
-    GROUP BY p.Id, p.OpeningStock, p.MinStockLevel
-    HAVING (p.OpeningStock + COALESCE(SUM(CASE WHEN sm.MovementType IN ('Gelen','İade Giriş') THEN sm.Quantity ELSE -sm.Quantity END), 0)) <= p.MinStockLevel
-) AS sub;
+SELECT COUNT(*) FROM Products p
+INNER JOIN vw_ProductStock vs ON vs.ProductId = p.Id
+WHERE p.IsActive = 1 AND vs.CurrentStock <= p.MinStockLevel;
 ");
         if (critDt.Rows.Count > 0)
         {
@@ -1189,14 +1216,12 @@ WHERE a.IsActive = 1
 SELECT TOP 10
     p.Code AS [Ürün Kodu],
     p.Name AS [Ürün Adı],
-    (p.OpeningStock + COALESCE(SUM(CASE WHEN sm.MovementType IN ('Gelen','İade Giriş') THEN sm.Quantity ELSE -sm.Quantity END), 0)) AS [Kalan Stok],
+    vs.CurrentStock AS [Kalan Stok],
     p.Unit AS [Birim],
     p.MinStockLevel AS [Kritik Seviye]
 FROM Products p
-LEFT JOIN StockMovements sm ON sm.ProductId = p.Id
-WHERE p.IsActive = 1
-GROUP BY p.Id, p.Code, p.Name, p.OpeningStock, p.Unit, p.MinStockLevel
-HAVING (p.OpeningStock + COALESCE(SUM(CASE WHEN sm.MovementType IN ('Gelen','İade Giriş') THEN sm.Quantity ELSE -sm.Quantity END), 0)) <= p.MinStockLevel
+INNER JOIN vw_ProductStock vs ON vs.ProductId = p.Id
+WHERE p.IsActive = 1 AND vs.CurrentStock <= p.MinStockLevel
 ORDER BY [Kalan Stok] ASC;
 ");
     }
@@ -1254,7 +1279,7 @@ LEFT JOIN (
         sm.WarehouseId,
         COUNT(DISTINCT sm.ProductId) AS TotalProducts,
         SUM(CASE WHEN sm.MovementType IN ('Gelen', 'İade Giriş', 'Transfer Giriş') THEN sm.Quantity 
-                 WHEN sm.MovementType IN ('Satılan', 'Çıkış', 'Fire', 'Transfer Çıkış') THEN -sm.Quantity 
+                 WHEN sm.MovementType IN ('Satılan', 'Satış', 'Giden', 'Çıkış', 'Fire', 'Fire / Zayi', 'Transfer Çıkış') THEN -sm.Quantity 
                  ELSE 0 END) AS TotalStockQty
     FROM StockMovements sm
     GROUP BY sm.WarehouseId
@@ -1386,8 +1411,8 @@ WHERE Id=$id",
 SELECT 
     COALESCE(SUM(CASE 
         WHEN MovementType IN ('Gelen', 'İade Giriş') AND WarehouseId = $w THEN Quantity
-        WHEN MovementType = 'Transfer Giriş' AND TargetWarehouseId = $w THEN Quantity
-        WHEN MovementType IN ('Satılan', 'Çıkış', 'Fire') AND WarehouseId = $w THEN -Quantity
+        WHEN MovementType = 'Transfer Giriş' AND WarehouseId = $w THEN Quantity
+        WHEN MovementType IN ('Satılan', 'Satış', 'Giden', 'Çıkış', 'Fire', 'Fire / Zayi') AND WarehouseId = $w THEN -Quantity
         WHEN MovementType = 'Transfer Çıkış' AND WarehouseId = $w THEN -Quantity
         ELSE 0 END), 0)
 FROM StockMovements

@@ -1,4 +1,3 @@
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Forms;
 using StokVeresiyeApp.Helpers;
@@ -9,18 +8,18 @@ namespace StokVeresiyeApp.Forms;
 
 public class AccountForm : BaseModernForm
 {
-    private readonly KryptonTextBox _txtName = new();
-    private readonly KryptonComboBox _cmbType = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonTextBox _txtPhone = new();
-    private readonly KryptonTextBox _txtEmail = new();
-    private readonly KryptonTextBox _txtTaxOffice = new();
-    private readonly KryptonTextBox _txtTaxNumber = new();
-    private readonly KryptonComboBox _cmbPriceGroup = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonTextBox _txtDiscount = new() { Text = "0" };
-    private readonly KryptonTextBox _txtLimit = new() { Text = "0,00" };
-    private readonly KryptonCheckBox _chkBlacklist = new() { Text = "⛔ Bu cariyi KARA LİSTEYE al (Riskli Müşteri - Veresiye uyarısı verir)", AutoSize = true };
-    private readonly KryptonTextBox _txtAddress = new() { Multiline = true, Height = 60 };
-    private readonly KryptonTextBox _txtDesc = new() { Multiline = true, Height = 50 };
+    private readonly TextBox _txtName = new();
+    private readonly ComboBox _cmbType = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TextBox _txtPhone = new();
+    private readonly TextBox _txtEmail = new();
+    private readonly TextBox _txtTaxOffice = new();
+    private readonly TextBox _txtTaxNumber = new();
+    private readonly ComboBox _cmbPriceGroup = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TextBox _txtDiscount = new() { Text = "0" };
+    private readonly TextBox _txtLimit = new() { Text = "0,00" };
+    private readonly CheckBox _chkBlacklist = new() { Text = "⛔ Bu cariyi KARA LİSTEYE al (Riskli Müşteri - Veresiye uyarısı verir)", AutoSize = true };
+    private readonly TextBox _txtAddress = new() { Multiline = true, Height = 60 };
+    private readonly TextBox _txtDesc = new() { Multiline = true, Height = 50 };
 
     private readonly long _id = -1;
 
@@ -48,7 +47,7 @@ public class AccountForm : BaseModernForm
         pnlTax.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130f));
         pnlTax.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
-        var btnTaxLookup = UITheme.CreateKryptonButton("🔍 GİB Sorgula", Color.FromArgb(13, 148, 136), Color.White, async (s, e) =>
+        var btnTaxLookup = UITheme.CreateButton("🔍 GİB Sorgula", Color.FromArgb(13, 148, 136), Color.White, async (s, e) =>
         {
             var curUser = UserService.CurrentUser;
             if (curUser != null && !curUser.HasPermission(UserPermissions.TaxLookup) && !curUser.HasPermission(UserPermissions.Accounts))
@@ -85,7 +84,7 @@ public class AccountForm : BaseModernForm
         }, 125, 34);
 
         _txtTaxNumber.Dock = DockStyle.Fill;
-        _txtTaxNumber.CueHint.CueHintText = "10 haneli VKN veya 11 haneli TCKN";
+        _txtTaxNumber.PlaceholderText = "10 haneli VKN veya 11 haneli TCKN";
         pnlTax.Controls.Add(_txtTaxNumber, 0, 0);
         pnlTax.Controls.Add(btnTaxLookup, 1, 0);
 

@@ -1,5 +1,4 @@
 using System.Data;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Helpers;
 
@@ -7,8 +6,8 @@ namespace StokVeresiyeApp.Forms;
 
 public class ExpiryAndStockAlertsDialog : BaseModernForm
 {
-    private readonly KryptonComboBox _cmbFilter = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly KryptonTextBox _txtSearch = new() { CueHint = { CueHintText = "🔍 Ürün adı veya barkod ile filtrele..." } };
+    private readonly ComboBox _cmbFilter = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TextBox _txtSearch = new() { PlaceholderText = "🔍 Ürün adı veya barkod ile filtrele..." };
     private readonly DataGridView _grid = new();
     private readonly Label _lblStatExpiry = new();
     private readonly Label _lblStatCritical = new();
@@ -68,7 +67,7 @@ public class ExpiryAndStockAlertsDialog : BaseModernForm
 
         if (Controls.Find("actionPanel", true).FirstOrDefault() is Panel actionPanel)
         {
-            var btnDiscount = UITheme.CreateKryptonButton("🏷️ Seçili Ürüne Fiyat Güncelle", Color.FromArgb(79, 70, 229), Color.White, (s, e) => OpenQuickPriceEdit(), 210, 36);
+            var btnDiscount = UITheme.CreateButton("🏷️ Seçili Ürüne Fiyat Güncelle", Color.FromArgb(79, 70, 229), Color.White, (s, e) => OpenQuickPriceEdit(), 210, 36);
             btnDiscount.Dock = DockStyle.Left;
             actionPanel.Controls.Add(btnDiscount);
         }
@@ -113,7 +112,7 @@ public class ExpiryAndStockAlertsDialog : BaseModernForm
             else if (status.Contains("30 GÜN"))
             {
                 row.DefaultCellStyle.BackColor = Color.FromArgb(239, 246, 255);
-                row.DefaultCellStyle.ForeColor = Color.FromArgb(29, 78, 216);
+                row.DefaultCellStyle.ForeColor = UITheme.PrimaryDark;
             }
         };
     }
@@ -126,7 +125,7 @@ SELECT
     COALESCE(p.Barcode, '') AS [Barkod],
     p.Name AS [Ürün Adı],
     p.Category AS [Kategori],
-    (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) AS [Mevcut Stok],
+    ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) AS [Mevcut Stok],
     p.Unit AS [Birim],
     COALESCE(p.MinStockLevel, 5) AS [Kritik Seviye],
     p.SalePrice AS [Satış Fiyatı],

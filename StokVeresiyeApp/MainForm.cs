@@ -1,7 +1,5 @@
 using System.Data;
 using System.Diagnostics;
-using Krypton.Ribbon;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Forms;
 using StokVeresiyeApp.Helpers;
@@ -10,10 +8,10 @@ using StokVeresiyeApp.Services;
 
 namespace StokVeresiyeApp;
 
-public class MainForm : KryptonForm
+public class MainForm : Form
 {
     // Ribbon & Navigasyon
-    private readonly KryptonRibbon _ribbon = new();
+    private readonly CmdRegistry _ribbon = new();
     private readonly Panel _contentArea = new();
     private readonly TableLayoutPanel _shellLayout = new();
     private readonly StatusStrip _statusStrip = new();
@@ -21,7 +19,7 @@ public class MainForm : KryptonForm
     private readonly ToolStripStatusLabel _statusLicense = new();
     private readonly ToolStripStatusLabel _statusDb = new();
     private readonly ToolStripStatusLabel _statusClock = new();
-    private KryptonRibbonGroupButton? _ribbonBtnNotify;
+    private CmdButton? _ribbonBtnNotify;
     private int _currentNavIndex = 0;
     public bool IsLoggedOut { get; private set; } = false;
 
@@ -39,6 +37,9 @@ public class MainForm : KryptonForm
     private readonly Label _lblSidebarBrand = new();
     private readonly Label _lblSidebarBadge = new();
     private bool _isSidebarCollapsed = false;
+    private TableLayoutPanel? _sidebarLogoLayout;
+    private TableLayoutPanel? _sidebarUserLayout;
+    private readonly List<Control> _sidebarExpandedOnly = new();
 
     // Sidebar Navigasyon Butonları
     private SidebarNavButton _btnNavDash = new();
@@ -68,11 +69,11 @@ public class MainForm : KryptonForm
     private Panel _pnlSettings = new();
 
     // Kullanıcı Sayfası Kontrolleri
-    private KryptonDataGridView _gridUsers = new();
+    private DataGridView _gridUsers = new();
     private TextBox _txtUserSearch = new();
 
     // Audit Log Sayfası Kontrolleri
-    private KryptonDataGridView _gridAuditLogs = new();
+    private DataGridView _gridAuditLogs = new();
     private TextBox _txtAuditSearch = new();
     private ComboBox _cmbAuditEntity = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private ComboBox _cmbAuditAction = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -85,11 +86,11 @@ public class MainForm : KryptonForm
     private StatCard _cardPayable = new();
     private StatCard _cardTodayCash = new();
     private StatCard _cardOverdue = new();
-    private KryptonDataGridView _gridCriticalStock = new();
-    private KryptonDataGridView _gridTopDebtors = new();
-    private KryptonDataGridView _gridRecentTransactions = new();
+    private DataGridView _gridCriticalStock = new();
+    private DataGridView _gridTopDebtors = new();
+    private DataGridView _gridRecentTransactions = new();
     private TextBox _txtDashProductSearch = new();
-    private KryptonDataGridView _gridDashProductSearch = new();
+    private DataGridView _gridDashProductSearch = new();
 
     private Panel _dashHeader = new();
     private CardPanel _dashPnlCustomizer = new();
@@ -107,7 +108,7 @@ public class MainForm : KryptonForm
     private CheckBox _chkDashRecent = new() { Text = "🕒 Son Finansallar", AutoSize = true, Checked = true, Font = UITheme.SmallFont };
 
     // Kasa / Finans Fatura & Ödeme Takibi Kontrolleri
-    private KryptonDataGridView _gridInvoices = new();
+    private DataGridView _gridInvoices = new();
     private TextBox _txtInvSearch = new();
     private ComboBox _cmbInvType = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private ComboBox _cmbInvStatus = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -119,19 +120,19 @@ public class MainForm : KryptonForm
     private Label _lblInvSummaryRemaining = new() { Font = new Font("Segoe UI", 10.5f, FontStyle.Bold), ForeColor = Color.FromArgb(220, 38, 38), AutoSize = true };
 
     // Ürünler Sayfası Kontrolleri
-    private KryptonDataGridView _gridProducts = new();
+    private DataGridView _gridProducts = new();
     private TextBox _txtProductSearch = new();
     private ComboBox _cmbProductCategory = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private ComboBox _cmbProductWarehouse = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private CheckBox _chkOnlyCritical = new() { Text = "Sadece Kritik Stoklar", AutoSize = true, Font = UITheme.RegularFont };
 
     // Cari Sayfası Kontrolleri
-    private KryptonDataGridView _gridAccounts = new();
+    private DataGridView _gridAccounts = new();
     private TextBox _txtAccountSearch = new();
     private ComboBox _cmbAccountType = new() { DropDownStyle = ComboBoxStyle.DropDownList };
 
     // Stok Hareketleri Sayfası Kontrolleri
-    private KryptonDataGridView _gridStockMov = new();
+    private DataGridView _gridStockMov = new();
     private TextBox _txtStockSearch = new();
     private ComboBox _cmbStockType = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private ComboBox _cmbStockWarehouse = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -139,7 +140,7 @@ public class MainForm : KryptonForm
     private DateTimePicker _dtpStockEnd = new() { Format = DateTimePickerFormat.Short, Value = DateTime.Today };
 
     // Kasa & Finansal Hareketler Sayfası Kontrolleri
-    private KryptonDataGridView _gridAccMov = new();
+    private DataGridView _gridAccMov = new();
     private TextBox _txtAccMovSearch = new();
     private ComboBox _cmbAccMovType = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private DateTimePicker _dtpAccStart = new() { Format = DateTimePickerFormat.Short, Value = DateTime.Today.AddMonths(-1) };
@@ -149,6 +150,7 @@ public class MainForm : KryptonForm
 
     public MainForm()
     {
+        DoubleBuffered = true;
         Text = "Bilensis - Stok & Cari Yönetim Sistemi";
         Width = 1380;
         Height = 850;
@@ -228,8 +230,22 @@ public class MainForm : KryptonForm
         MobileScannerService.BarcodeScannedFromMobile += OnBarcodeScannedFromMobile;
         FormClosed += (s, e) => MobileScannerService.BarcodeScannedFromMobile -= OnBarcodeScannedFromMobile;
 
-        // Günlük Otomatik Bulut Yedekleme Kontrolü
-        Task.Run(() => CloudBackupService.AutoCheckDailyBackup());
+        // Günlük Otomatik Bulut Yedekleme Kontrolü (veritabanı + yalnızca PDF faturalar ayrı ayrı)
+        Task.Run(() =>
+        {
+            CloudBackupService.AutoCheckDailyBackup();
+            PdfArchiveService.AutoCheckDailyPdfBackup();
+        });
+
+        // Program gece boyunca açık kalırsa gün değiştiğinde de günlük yedek alınsın (yarım saatte bir kontrol)
+        var dailyBackupTimer = new System.Windows.Forms.Timer { Interval = 30 * 60 * 1000 };
+        dailyBackupTimer.Tick += (s, e) => Task.Run(() =>
+        {
+            CloudBackupService.AutoCheckDailyBackup();
+            PdfArchiveService.AutoCheckDailyPdfBackup();
+        });
+        dailyBackupTimer.Start();
+        FormClosed += (s, e) => dailyBackupTimer.Dispose();
 
         // Program Kapanışında Otomatik Bulut Yedekleme (Aktifse ve oturum kapatma değilse çalışır)
         FormClosing += (s, e) =>
@@ -239,6 +255,8 @@ public class MainForm : KryptonForm
                 if (!IsLoggedOut && CloudBackupService.Config.BackupOnExit)
                 {
                     CloudBackupService.ExecuteBackup(silent: true);
+                    // PDF'ler artık veritabanı yedeğinde değil: ayrı ve artımlı (yalnızca yeni dosyalar) kopyalanır
+                    if (CloudBackupService.Config.DailyPdfBackupEnabled) PdfArchiveService.BackupAll();
                 }
             }
             catch { }
@@ -249,7 +267,6 @@ public class MainForm : KryptonForm
     {
         // 1. Ribbon Menüsü (Arka planda hazır tutulur, dikey yer kaplamaması için formdan gizlenir)
         BuildRibbon();
-        _ribbon.Visible = false;
 
         // 2. Ana Shell Düzeni: Sidebar / Header / Content tek kök çerçeve içinde çakışmaz
         _shellLayout.Dock = DockStyle.Fill;
@@ -257,9 +274,9 @@ public class MainForm : KryptonForm
         _shellLayout.RowCount = 2;
         _shellLayout.Padding = new Padding(0);
         _shellLayout.Margin = new Padding(0);
-        _shellLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210F));
+        _shellLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 236F));
         _shellLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        _shellLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
+        _shellLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64F));
         _shellLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
         // 3. Sol Modern SaaS Sidebar (Koyu Slate #0F172A)
@@ -313,7 +330,7 @@ public class MainForm : KryptonForm
         {
             Icon = icon,
             Text = text,
-            Width = 220,
+            Width = 206,
             Height = 44,
             Margin = new Padding(5, 2, 5, 2)
         };
@@ -325,7 +342,7 @@ public class MainForm : KryptonForm
     private void BuildSidebar()
     {
         _pnlSidebar.Dock = DockStyle.Fill;
-        _pnlSidebar.Width = 210;
+        _pnlSidebar.Width = 236;
         _pnlSidebar.BackColor = UITheme.SidebarBg;
         _pnlSidebar.Padding = new Padding(0);
 
@@ -349,7 +366,7 @@ public class MainForm : KryptonForm
             Padding = new Padding(12, 10, 12, 10)
         };
 
-        var logoLayout = new TableLayoutPanel
+        var logoLayout = _sidebarLogoLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 3,
@@ -403,10 +420,10 @@ public class MainForm : KryptonForm
         {
             Dock = DockStyle.Fill,
             BackColor = Color.FromArgb(11, 17, 32),
-            Padding = new Padding(10, 8, 10, 8)
+            Padding = new Padding(10, 3, 10, 3)
         };
 
-        var userLayout = new TableLayoutPanel
+        var userLayout = _sidebarUserLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
@@ -416,7 +433,7 @@ public class MainForm : KryptonForm
             Margin = new Padding(0)
         };
         userLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        userLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 32F));
+        userLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58F));
         userLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 55F));
         userLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 45F));
 
@@ -460,6 +477,8 @@ public class MainForm : KryptonForm
         btnLogout.FlatAppearance.BorderSize = 0;
         btnLogout.Click += (s, e) => LogoutAction();
 
+        _sidebarExpandedOnly.Add(lblUserName);
+        _sidebarExpandedOnly.Add(lblUserRole);
         userLayout.Controls.Add(lblUserName, 0, 0);
         userLayout.Controls.Add(lblUserRole, 0, 1);
         userLayout.Controls.Add(btnLogout, 1, 0);
@@ -519,7 +538,7 @@ public class MainForm : KryptonForm
         _isSidebarCollapsed = !_isSidebarCollapsed;
 
         var collapsedWidth = 62F;
-        var expandedWidth = 210F;
+        var expandedWidth = 236F;
 
         _shellLayout.ColumnStyles[0].SizeType = SizeType.Absolute;
         _shellLayout.ColumnStyles[0].Width = _isSidebarCollapsed ? collapsedWidth : expandedWidth;
@@ -530,10 +549,24 @@ public class MainForm : KryptonForm
         _lblSidebarBrand.Visible = !_isSidebarCollapsed;
         _lblSidebarBadge.Visible = !_isSidebarCollapsed;
 
+        // Daraltılmış modda tek görünen buton açma/kapama düğmesi olmalı; sütunlar 62 px içinde ona yer bırakır
+        if (_sidebarLogoLayout != null)
+        {
+            _sidebarLogoLayout.ColumnStyles[0] = _isSidebarCollapsed ? new ColumnStyle(SizeType.Absolute, 0F) : new ColumnStyle(SizeType.Percent, 100F);
+            _sidebarLogoLayout.ColumnStyles[1] = new ColumnStyle(SizeType.Absolute, _isSidebarCollapsed ? 0F : 42F);
+            _sidebarLogoLayout.ColumnStyles[2] = _isSidebarCollapsed ? new ColumnStyle(SizeType.Percent, 100F) : new ColumnStyle(SizeType.Absolute, 30F);
+        }
+        if (_sidebarUserLayout != null)
+        {
+            _sidebarUserLayout.ColumnStyles[0] = _isSidebarCollapsed ? new ColumnStyle(SizeType.Absolute, 0F) : new ColumnStyle(SizeType.Percent, 100F);
+            _sidebarUserLayout.ColumnStyles[1] = _isSidebarCollapsed ? new ColumnStyle(SizeType.Percent, 100F) : new ColumnStyle(SizeType.Absolute, 58F);
+        }
+        foreach (var c in _sidebarExpandedOnly) c.Visible = !_isSidebarCollapsed;
+
         foreach (var btn in _allNavButtons)
         {
             btn.IsCollapsed = _isSidebarCollapsed;
-            btn.Width = _isSidebarCollapsed ? 44 : 196;
+            btn.Width = _isSidebarCollapsed ? 44 : 206;
             btn.Visible = true;
             btn.Invalidate();
         }
@@ -573,25 +606,25 @@ public class MainForm : KryptonForm
         };
 
         // Sol Panel: Sayfa Başlığı ve Açıklaması (Dock Left, asla sağdaki butonlarla çakışmaz)
-        var pnlTitle = new Panel
+        var pnlTitle = new FlowLayoutPanel
         {
             Dock = DockStyle.Left,
-            AutoSize = true,
+            AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false,
             BackColor = Color.Transparent,
-            Padding = new Padding(4, 8, 8, 4)
+            Padding = new Padding(4, 6, 8, 0)
         };
 
         _lblPageTitle.Font = new Font("Segoe UI", 11.5f, FontStyle.Bold);
         _lblPageTitle.ForeColor = UITheme.TextPrimary;
         _lblPageTitle.Text = "Genel Bakış (Dashboard)";
         _lblPageTitle.AutoSize = true;
-        _lblPageTitle.Location = new Point(4, 6);
+        _lblPageTitle.Margin = new Padding(0);
 
         _lblPageSubTitle.Font = new Font("Segoe UI", 8.5f, FontStyle.Regular);
         _lblPageSubTitle.ForeColor = UITheme.TextSecondary;
         _lblPageSubTitle.Text = "İşletmenizin anlık finansal ve operasyonel göstergeleri";
         _lblPageSubTitle.AutoSize = true;
-        _lblPageSubTitle.Location = new Point(5, 28);
+        _lblPageSubTitle.Margin = new Padding(1, 0, 0, 0);
 
         pnlTitle.Controls.Add(_lblPageTitle);
         pnlTitle.Controls.Add(_lblPageSubTitle);
@@ -704,7 +737,28 @@ public class MainForm : KryptonForm
         btnRefresh.FlatAppearance.BorderSize = 0;
         btnRefresh.Click += (s, e) => RefreshCurrentPage();
 
+        var btnAllActions = new Button
+        {
+            Text = "☰ Tüm İşlemler",
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            BackColor = UITheme.PrimaryLight,
+            ForeColor = UITheme.Primary,
+            FlatStyle = FlatStyle.Flat,
+            Height = 32,
+            AutoSize = true,
+            Padding = new Padding(6, 0, 6, 0),
+            Cursor = Cursors.Hand,
+            Margin = new Padding(3, 1, 3, 0)
+        };
+        btnAllActions.FlatAppearance.BorderSize = 0;
+        btnAllActions.Click += (s, e) =>
+        {
+            var menu = _ribbon.BuildMenu();
+            menu.Show(btnAllActions, new Point(0, btnAllActions.Height));
+        };
+
         pnlActions.Controls.Add(pnlSearchContainer);
+        pnlActions.Controls.Add(btnAllActions);
         pnlActions.Controls.Add(btnSale);
         pnlActions.Controls.Add(btnBuy);
         pnlActions.Controls.Add(_btnHeaderNotify);
@@ -884,36 +938,6 @@ public class MainForm : KryptonForm
 
     private void BuildRibbon()
     {
-        _ribbon.Dock = DockStyle.Top;
-        _ribbon.RibbonFileAppTab.FileAppTabText = "BİLENSİS";
-        _ribbon.RibbonFileAppButton.AppButtonShowRecentDocs = false;
-        _ribbon.RibbonFileAppButton.AppButtonMenuItems.Clear();
-
-        var itemDb = new KryptonContextMenuItem("⚙️ SQL Veritabanı Ayarları", (s, e) => 
-        {
-            using var dlg = new DatabaseConfigDialog();
-            dlg.ShowDialog(this);
-        });
-        itemDb.Image = RibbonIconFactory.CreateIcon("settings", 24);
-
-        var itemNotif = new KryptonContextMenuItem("🔔 Bildirim & Uyarı Merkezi", (s, e) => OpenNotificationCenter());
-        itemNotif.Image = RibbonIconFactory.CreateIcon("notification", 24);
-
-        var itemZ = new KryptonContextMenuItem("🔒 Kasa Gün Sonu & Z Raporu", (s, e) => OpenDailyCashClosing());
-        itemZ.Image = RibbonIconFactory.CreateIcon("closing", 24);
-
-        var itemLogout = new KryptonContextMenuItem("👤 Oturumu Kapat", (s, e) => LogoutAction());
-        itemLogout.Image = RibbonIconFactory.CreateIcon("logout", 24);
-
-        var itemExit = new KryptonContextMenuItem("🚪 Programdan Çıkış", (s, e) => Close());
-        itemExit.Image = RibbonIconFactory.CreateIcon("danger", 24);
-
-        _ribbon.RibbonFileAppButton.AppButtonMenuItems.Add(itemDb);
-        _ribbon.RibbonFileAppButton.AppButtonMenuItems.Add(itemNotif);
-        _ribbon.RibbonFileAppButton.AppButtonMenuItems.Add(itemZ);
-        _ribbon.RibbonFileAppButton.AppButtonMenuItems.Add(new KryptonContextMenuSeparator());
-        _ribbon.RibbonFileAppButton.AppButtonMenuItems.Add(itemLogout);
-        _ribbon.RibbonFileAppButton.AppButtonMenuItems.Add(itemExit);
 
         _ribbon.RibbonTabs.Clear();
 
@@ -922,12 +946,12 @@ public class MainForm : KryptonForm
         // ==========================================
         // SEKME 1: 📊 GENEL BAKIŞ (DASHBOARD)
         // ==========================================
-        var tabDash = new KryptonRibbonTab { Text = "📊 Genel Bakış" };
+        var tabDash = new CmdTab { Text = "📊 Genel Bakış" };
 
-        var grpDashMain = new KryptonRibbonGroup { TextLine1 = "Ana Kontrol" };
-        var tripDashMain = new KryptonRibbonGroupTriple();
+        var grpDashMain = new CmdGroup { TextLine1 = "Ana Kontrol" };
+        var tripDashMain = new CmdTriple();
 
-        var btnDash = new KryptonRibbonGroupButton 
+        var btnDash = new CmdButton 
         { 
             TextLine1 = "📊 Kontrol Paneli", 
             TextLine2 = "Özet Pano",
@@ -936,7 +960,7 @@ public class MainForm : KryptonForm
         };
         btnDash.Click += (s, e) => ShowPage(0);
 
-        var btnZReportDash = new KryptonRibbonGroupButton 
+        var btnZReportDash = new CmdButton 
         { 
             TextLine1 = "🔒 Gün Sonu (Z)", 
             TextLine2 = "Kasa Raporu",
@@ -945,7 +969,7 @@ public class MainForm : KryptonForm
         };
         btnZReportDash.Click += (s, e) => OpenDailyCashClosing();
 
-        var btnNotifDash = new KryptonRibbonGroupButton 
+        var btnNotifDash = new CmdButton 
         { 
             TextLine1 = "🔔 Bildirimler", 
             TextLine2 = "Kritik Uyarılar",
@@ -962,10 +986,10 @@ public class MainForm : KryptonForm
         tabDash.Groups.Add(grpDashMain);
 
         // --- 2. EKRAN DÜZENİ GRUBU (Ribbon Menüye Taşındı) ---
-        var grpDashLayout = new KryptonRibbonGroup { TextLine1 = "👁️ Ekran Düzeni" };
-        var tripLayout1 = new KryptonRibbonGroupTriple();
+        var grpDashLayout = new CmdGroup { TextLine1 = "👁️ Ekran Düzeni" };
+        var tripLayout1 = new CmdTriple();
 
-        var btnLayoutStd = new KryptonRibbonGroupButton 
+        var btnLayoutStd = new CmdButton 
         { 
             TextLine1 = "🌐 Standart Pano", 
             TextLine2 = "Tüm Bölümler",
@@ -974,50 +998,40 @@ public class MainForm : KryptonForm
         };
         btnLayoutStd.Click += (s, e) => SetDashboardLayout(0);
 
-        var btnLayoutCrit = new KryptonRibbonGroupButton 
-        { 
-            TextLine1 = "⚠️ Kritik Stok", 
-            TextLine2 = "Tam Odak",
-            ImageLarge = RibbonIconFactory.CreateIcon("due", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("due", 16)
-        };
-        btnLayoutCrit.Click += (s, e) => SetDashboardLayout(1);
-
-        var btnLayoutDebtors = new KryptonRibbonGroupButton 
+        var btnLayoutDebtors = new CmdButton 
         { 
             TextLine1 = "💰 Borçlular", 
             TextLine2 = "Tam Odak",
             ImageLarge = RibbonIconFactory.CreateIcon("accounts", 32),
             ImageSmall = RibbonIconFactory.CreateIcon("accounts", 16)
         };
-        btnLayoutDebtors.Click += (s, e) => SetDashboardLayout(3);
+        btnLayoutDebtors.Click += (s, e) => SetDashboardLayout(2);
 
         tripLayout1.Items.Add(btnLayoutStd);
-        tripLayout1.Items.Add(btnLayoutCrit);
         tripLayout1.Items.Add(btnLayoutDebtors);
         grpDashLayout.Items.Add(tripLayout1);
 
-        var tripLayout2 = new KryptonRibbonGroupTriple();
+        var tripLayout2 = new CmdTriple();
 
-        var btnLayoutRecent = new KryptonRibbonGroupButton 
+        var btnLayoutRecent = new CmdButton 
         { 
             TextLine1 = "🕒 Son İşlemler", 
             TextLine2 = "Tam Odak",
             ImageLarge = RibbonIconFactory.CreateIcon("statement", 32),
             ImageSmall = RibbonIconFactory.CreateIcon("statement", 16)
         };
-        btnLayoutRecent.Click += (s, e) => SetDashboardLayout(2);
+        btnLayoutRecent.Click += (s, e) => SetDashboardLayout(1);
 
-        var btnLayoutSearch = new KryptonRibbonGroupButton 
+        var btnLayoutSearch = new CmdButton 
         { 
             TextLine1 = "🔍 Hızlı Arama", 
             TextLine2 = "Tam Odak",
             ImageLarge = RibbonIconFactory.CreateIcon("quicksale", 32),
             ImageSmall = RibbonIconFactory.CreateIcon("quicksale", 16)
         };
-        btnLayoutSearch.Click += (s, e) => SetDashboardLayout(4);
+        btnLayoutSearch.Click += (s, e) => SetDashboardLayout(3);
 
-        var btnRefreshDash = new KryptonRibbonGroupButton 
+        var btnRefreshDash = new CmdButton 
         { 
             TextLine1 = "🔄 Verileri Yenile", 
             TextLine2 = "Canlı Güncelle",
@@ -1033,10 +1047,10 @@ public class MainForm : KryptonForm
         tabDash.Groups.Add(grpDashLayout);
 
         // --- 4. RİSK & ENTEGRASYON GRUBU ---
-        var grpDashDue = new KryptonRibbonGroup { TextLine1 = "Risk & Entegrasyon" };
-        var tripDashDue = new KryptonRibbonGroupTriple();
+        var grpDashDue = new CmdGroup { TextLine1 = "Risk & Entegrasyon" };
+        var tripDashDue = new CmdTriple();
 
-        var btnOverdueDash = new KryptonRibbonGroupButton 
+        var btnOverdueDash = new CmdButton 
         { 
             TextLine1 = "⚠️ Vadesi Dolanlar", 
             TextLine2 = "Geciken Borçlar",
@@ -1045,7 +1059,7 @@ public class MainForm : KryptonForm
         };
         btnOverdueDash.Click += (s, e) => OpenNotificationCenter(1);
 
-        var btnMobDash = new KryptonRibbonGroupButton 
+        var btnMobDash = new CmdButton 
         { 
             TextLine1 = "📱 Canlı Barkod", 
             TextLine2 = "Kamera Okuyucu",
@@ -1058,9 +1072,9 @@ public class MainForm : KryptonForm
         tripDashDue.Items.Add(btnMobDash);
         grpDashDue.Items.Add(tripDashDue);
 
-        var tripDashDue2 = new KryptonRibbonGroupTriple();
+        var tripDashDue2 = new CmdTriple();
 
-        var btnWhatsAppDash = new KryptonRibbonGroupButton 
+        var btnWhatsAppDash = new CmdButton 
         { 
             TextLine1 = "💬 WhatsApp Cep", 
             TextLine2 = "Mobil Portal & Bot",
@@ -1069,7 +1083,7 @@ public class MainForm : KryptonForm
         };
         btnWhatsAppDash.Click += (s, e) => OpenWhatsAppAssistantDialog();
 
-        var btnBatchInvDash = new KryptonRibbonGroupButton 
+        var btnBatchInvDash = new CmdButton 
         { 
             TextLine1 = "📂 Toplu Fatura", 
             TextLine2 = "Çoklu PDF Aktar",
@@ -1089,12 +1103,12 @@ public class MainForm : KryptonForm
         // ==========================================
         // SEKME 2: ⚡ HIZLI SATIŞ & POS
         // ==========================================
-        var tabSales = new KryptonRibbonTab { Text = "⚡ Hızlı Satış & POS" };
+        var tabSales = new CmdTab { Text = "⚡ Hızlı Satış & POS" };
 
-        var grpSale = new KryptonRibbonGroup { TextLine1 = "Satış & Fiş" };
-        var tripSale = new KryptonRibbonGroupTriple();
+        var grpSale = new CmdGroup { TextLine1 = "Satış & Fiş" };
+        var tripSale = new CmdTriple();
 
-        var btnSale = new KryptonRibbonGroupButton 
+        var btnSale = new CmdButton 
         { 
             TextLine1 = "⚡ Hızlı Satış", 
             TextLine2 = "(F3 Kısayol)",
@@ -1103,7 +1117,7 @@ public class MainForm : KryptonForm
         };
         btnSale.Click += (s, e) => OpenQuickSale("Satış");
 
-        var btnBuy = new KryptonRibbonGroupButton 
+        var btnBuy = new CmdButton 
         { 
             TextLine1 = "📥 Hızlı Alış", 
             TextLine2 = "(F4 Kısayol)",
@@ -1112,7 +1126,7 @@ public class MainForm : KryptonForm
         };
         btnBuy.Click += (s, e) => OpenQuickSale("Alış");
 
-        var btnParked = new KryptonRibbonGroupButton 
+        var btnParked = new CmdButton 
         { 
             TextLine1 = "📂 Bekleyen Fişler", 
             TextLine2 = "Sepet / Askı",
@@ -1131,10 +1145,10 @@ public class MainForm : KryptonForm
         grpSale.Items.Add(tripSale);
         tabSales.Groups.Add(grpSale);
 
-        var grpCash = new KryptonRibbonGroup { TextLine1 = "Tahsilat & Kasa" };
-        var tripCash = new KryptonRibbonGroupTriple();
+        var grpCash = new CmdGroup { TextLine1 = "Tahsilat & Kasa" };
+        var tripCash = new CmdTriple();
 
-        var btnDebt = new KryptonRibbonGroupButton 
+        var btnDebt = new CmdButton 
         { 
             TextLine1 = "➕ Borç Ekle", 
             TextLine2 = "(F5 Kısayol)",
@@ -1143,7 +1157,7 @@ public class MainForm : KryptonForm
         };
         btnDebt.Click += (s, e) => { ShowPage(2); AddAccountMovementForSelected("Satış"); };
 
-        var btnCollect = new KryptonRibbonGroupButton 
+        var btnCollect = new CmdButton 
         { 
             TextLine1 = "💵 Tahsilat Yap", 
             TextLine2 = "(F6 Kısayol)",
@@ -1152,7 +1166,7 @@ public class MainForm : KryptonForm
         };
         btnCollect.Click += (s, e) => { ShowPage(2); AddAccountMovementForSelected("Tahsilat"); };
 
-        var btnCloseDay = new KryptonRibbonGroupButton 
+        var btnCloseDay = new CmdButton 
         { 
             TextLine1 = "🔒 Gün Sonu (Z)", 
             TextLine2 = "Kasa Raporu",
@@ -1167,10 +1181,10 @@ public class MainForm : KryptonForm
         grpCash.Items.Add(tripCash);
         tabSales.Groups.Add(grpCash);
 
-        var grpHardware = new KryptonRibbonGroup { TextLine1 = "POS Donanım" };
-        var tripHardware = new KryptonRibbonGroupTriple();
+        var grpHardware = new CmdGroup { TextLine1 = "POS Donanım" };
+        var tripHardware = new CmdTriple();
 
-        var btnCustomerDisplay = new KryptonRibbonGroupButton 
+        var btnCustomerDisplay = new CmdButton 
         { 
             TextLine1 = "📺 Müşteri Ekranı", 
             TextLine2 = "2. Ekran POS",
@@ -1188,7 +1202,7 @@ public class MainForm : KryptonForm
             CustomerDisplayForm.ShowOrToggle();
         };
 
-        var btnFastIbanQr = new KryptonRibbonGroupButton 
+        var btnFastIbanQr = new CmdButton 
         { 
             TextLine1 = "⚡ FAST / Karekod", 
             TextLine2 = "IBAN Tanımla",
@@ -1211,12 +1225,12 @@ public class MainForm : KryptonForm
         // ==========================================
         // SEKME 3: 📦 ÜRÜNLER & STOK
         // ==========================================
-        var tabStock = new KryptonRibbonTab { Text = "📦 Ürünler & Stok" };
+        var tabStock = new CmdTab { Text = "📦 Ürünler & Stok" };
 
-        var grpProduct = new KryptonRibbonGroup { TextLine1 = "Ürün Kartları" };
-        var tripProd = new KryptonRibbonGroupTriple();
+        var grpProduct = new CmdGroup { TextLine1 = "Ürün Kartları" };
+        var tripProd = new CmdTriple();
 
-        var btnProdList = new KryptonRibbonGroupButton 
+        var btnProdList = new CmdButton 
         { 
             TextLine1 = "📦 Ürün Listesi", 
             TextLine2 = "Tüm Stok",
@@ -1225,7 +1239,7 @@ public class MainForm : KryptonForm
         };
         btnProdList.Click += (s, e) => ShowPage(1);
 
-        var btnNewProd = new KryptonRibbonGroupButton 
+        var btnNewProd = new CmdButton 
         { 
             TextLine1 = "➕ Yeni Ürün", 
             TextLine2 = "Kart Tanımla",
@@ -1234,7 +1248,7 @@ public class MainForm : KryptonForm
         };
         btnNewProd.Click += (s, e) => AddProduct();
 
-        var btnBarcode = new KryptonRibbonGroupButton 
+        var btnBarcode = new CmdButton 
         { 
             TextLine1 = "🏷️ Barkod & Etiket", 
             TextLine2 = "Fiyat Basımı",
@@ -1249,10 +1263,10 @@ public class MainForm : KryptonForm
         grpProduct.Items.Add(tripProd);
         tabStock.Groups.Add(grpProduct);
 
-        var grpFast = new KryptonRibbonGroup { TextLine1 = "Seri Giriş & Geçmiş" };
-        var tripFast = new KryptonRibbonGroupTriple();
+        var grpFast = new CmdGroup { TextLine1 = "Seri Giriş & Geçmiş" };
+        var tripFast = new CmdTriple();
 
-        var btnFastEntry = new KryptonRibbonGroupButton 
+        var btnFastEntry = new CmdButton 
         { 
             TextLine1 = "⚡ Seri Ürün Girişi", 
             TextLine2 = "Manuel Ekleme",
@@ -1261,7 +1275,7 @@ public class MainForm : KryptonForm
         };
         btnFastEntry.Click += (s, e) => OpenFastProductEntry();
 
-        var btnHistoryRib = new KryptonRibbonGroupButton 
+        var btnHistoryRib = new CmdButton 
         { 
             TextLine1 = "📜 Fiyat & Stok", 
             TextLine2 = "Tarihçesi",
@@ -1270,7 +1284,7 @@ public class MainForm : KryptonForm
         };
         btnHistoryRib.Click += (s, e) => { ShowPage(1); OpenSelectedProductPriceHistory(); };
 
-        var btnBulkDel = new KryptonRibbonGroupButton 
+        var btnBulkDel = new CmdButton 
         { 
             TextLine1 = "🗑️ Çoklu Silme", 
             TextLine2 = "Seçilenleri Sil",
@@ -1285,10 +1299,10 @@ public class MainForm : KryptonForm
         grpFast.Items.Add(tripFast);
         tabStock.Groups.Add(grpFast);
 
-        var grpWh = new KryptonRibbonGroup { TextLine1 = "Depo & Envanter" };
-        var tripWh = new KryptonRibbonGroupTriple();
+        var grpWh = new CmdGroup { TextLine1 = "Depo & Envanter" };
+        var tripWh = new CmdTriple();
 
-        var btnWhManage = new KryptonRibbonGroupButton 
+        var btnWhManage = new CmdButton 
         { 
             TextLine1 = "🏢 Depo & Şube", 
             TextLine2 = "Yönetim",
@@ -1297,7 +1311,7 @@ public class MainForm : KryptonForm
         };
         btnWhManage.Click += (s, e) => OpenWarehouseManage();
 
-        var btnStockMov = new KryptonRibbonGroupButton 
+        var btnStockMov = new CmdButton 
         { 
             TextLine1 = "🔄 Stok Hareketleri", 
             TextLine2 = "Giriş/Çıkış",
@@ -1306,7 +1320,7 @@ public class MainForm : KryptonForm
         };
         btnStockMov.Click += (s, e) => ShowPage(3);
 
-        var btnCount = new KryptonRibbonGroupButton 
+        var btnCount = new CmdButton 
         { 
             TextLine1 = "⚖️ Hızlı Sayım", 
             TextLine2 = "Envanter Eşitle",
@@ -1322,10 +1336,10 @@ public class MainForm : KryptonForm
         tabStock.Groups.Add(grpWh);
 
         // --- 4. AKILLI FİYATLANDIRMA & STOK ANALİZİ GRUBU ---
-        var grpSmartPricing = new KryptonRibbonGroup { TextLine1 = "Akıllı Fiyat & Analiz" };
-        var tripSmartPrice = new KryptonRibbonGroupTriple();
+        var grpSmartPricing = new CmdGroup { TextLine1 = "Akıllı Fiyat & Analiz" };
+        var tripSmartPrice = new CmdTriple();
 
-        var btnBulkPrice = new KryptonRibbonGroupButton 
+        var btnBulkPrice = new CmdButton 
         { 
             TextLine1 = "🏷️ Toplu Fiyat", 
             TextLine2 = "% Zam & İndirim",
@@ -1334,6 +1348,7 @@ public class MainForm : KryptonForm
         };
         btnBulkPrice.Click += (s, e) =>
         {
+            if (!Require(UserPermissions.ProductsBulkPrice, "Toplu fiyat güncelleme")) return;
             using var dlg = new BulkPriceUpdateDialog();
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
@@ -1341,7 +1356,7 @@ public class MainForm : KryptonForm
             }
         };
 
-        var btnExpiryAlerts = new KryptonRibbonGroupButton 
+        var btnExpiryAlerts = new CmdButton 
         { 
             TextLine1 = "⚠️ SKT & Kritik", 
             TextLine2 = "Stok Alarmları",
@@ -1354,7 +1369,7 @@ public class MainForm : KryptonForm
             dlg.ShowDialog(this);
         };
 
-        var btnDeadStock = new KryptonRibbonGroupButton 
+        var btnDeadStock = new CmdButton 
         { 
             TextLine1 = "📦 Ölü Stok", 
             TextLine2 = "Durgun Sermaye",
@@ -1367,7 +1382,7 @@ public class MainForm : KryptonForm
             dlg.ShowDialog(this);
         };
 
-        var btnSoldProducts = new KryptonRibbonGroupButton
+        var btnSoldProducts = new CmdButton
         {
             TextLine1 = "📈 Satılan Ürünler",
             TextLine2 = "Adet, Tutar, Stok",
@@ -1384,7 +1399,7 @@ public class MainForm : KryptonForm
         tripSmartPrice.Items.Add(btnExpiryAlerts);
         tripSmartPrice.Items.Add(btnDeadStock);
         grpSmartPricing.Items.Add(tripSmartPrice);
-        var tripSalesReport = new KryptonRibbonGroupTriple();
+        var tripSalesReport = new CmdTriple();
         tripSalesReport.Items!.Add(btnSoldProducts);
         grpSmartPricing.Items.Add(tripSalesReport);
         tabStock.Groups.Add(grpSmartPricing);
@@ -1394,12 +1409,12 @@ public class MainForm : KryptonForm
         // ==========================================
         // SEKME 4: 👥 CARİ & VERESİYE
         // ==========================================
-        var tabAccounts = new KryptonRibbonTab { Text = "👥 Cari & Veresiye" };
+        var tabAccounts = new CmdTab { Text = "👥 Cari & Veresiye" };
 
-        var grpAcc = new KryptonRibbonGroup { TextLine1 = "Cari Hesaplar" };
-        var tripAcc = new KryptonRibbonGroupTriple();
+        var grpAcc = new CmdGroup { TextLine1 = "Cari Hesaplar" };
+        var tripAcc = new CmdTriple();
 
-        var btnAccList = new KryptonRibbonGroupButton 
+        var btnAccList = new CmdButton 
         { 
             TextLine1 = "👥 Cari Listesi", 
             TextLine2 = "Müşteri & Bayi",
@@ -1408,7 +1423,7 @@ public class MainForm : KryptonForm
         };
         btnAccList.Click += (s, e) => ShowPage(2);
 
-        var btnNewAcc = new KryptonRibbonGroupButton 
+        var btnNewAcc = new CmdButton 
         { 
             TextLine1 = "➕ Yeni Cari", 
             TextLine2 = "Müşteri Ekle",
@@ -1417,7 +1432,7 @@ public class MainForm : KryptonForm
         };
         btnNewAcc.Click += (s, e) => AddAccount();
 
-        var btnStmt = new KryptonRibbonGroupButton 
+        var btnStmt = new CmdButton 
         { 
             TextLine1 = "📄 Hesap Ekstresi", 
             TextLine2 = "(F10 Kısayol)",
@@ -1432,10 +1447,10 @@ public class MainForm : KryptonForm
         grpAcc.Items.Add(tripAcc);
         tabAccounts.Groups.Add(grpAcc);
 
-        var grpAccActions = new KryptonRibbonGroup { TextLine1 = "Borç & Tahsilat" };
-        var tripAccActions = new KryptonRibbonGroupTriple();
+        var grpAccActions = new CmdGroup { TextLine1 = "Borç & Tahsilat" };
+        var tripAccActions = new CmdTriple();
 
-        var btnAccCollect = new KryptonRibbonGroupButton 
+        var btnAccCollect = new CmdButton 
         { 
             TextLine1 = "💵 Tahsilat Al", 
             TextLine2 = "Ödeme Kaydet",
@@ -1444,7 +1459,7 @@ public class MainForm : KryptonForm
         };
         btnAccCollect.Click += (s, e) => { ShowPage(2); AddAccountMovementForSelected("Tahsilat"); };
 
-        var btnAccDebt = new KryptonRibbonGroupButton 
+        var btnAccDebt = new CmdButton 
         { 
             TextLine1 = "➕ Borç Yaz", 
             TextLine2 = "Veresiye Ekle",
@@ -1453,7 +1468,7 @@ public class MainForm : KryptonForm
         };
         btnAccDebt.Click += (s, e) => { ShowPage(2); AddAccountMovementForSelected("Satış"); };
 
-        var btnAccBulkDel = new KryptonRibbonGroupButton 
+        var btnAccBulkDel = new CmdButton 
         { 
             TextLine1 = "🗑️ Çoklu Silme", 
             TextLine2 = "Seçilen Carileri Sil",
@@ -1468,10 +1483,10 @@ public class MainForm : KryptonForm
         grpAccActions.Items.Add(tripAccActions);
         tabAccounts.Groups.Add(grpAccActions);
 
-        var grpRisk = new KryptonRibbonGroup { TextLine1 = "Risk & Takip" };
-        var tripRisk = new KryptonRibbonGroupTriple();
+        var grpRisk = new CmdGroup { TextLine1 = "Risk & Takip" };
+        var tripRisk = new CmdTriple();
 
-        var btnDue = new KryptonRibbonGroupButton 
+        var btnDue = new CmdButton 
         { 
             TextLine1 = "⚠️ Vadesi Dolanlar", 
             TextLine2 = "Geciken Borçlar",
@@ -1480,7 +1495,7 @@ public class MainForm : KryptonForm
         };
         btnDue.Click += (s, e) => OpenNotificationCenter(1);
 
-        var btnNotifyAcc = new KryptonRibbonGroupButton 
+        var btnNotifyAcc = new CmdButton 
         { 
             TextLine1 = "🔔 SMS & Bildirim", 
             TextLine2 = "Otomatik Hatırlat",
@@ -1489,7 +1504,7 @@ public class MainForm : KryptonForm
         };
         btnNotifyAcc.Click += (s, e) => OpenNotificationCenter();
 
-        var btnAccStmtRisk = new KryptonRibbonGroupButton 
+        var btnAccStmtRisk = new CmdButton 
         { 
             TextLine1 = "📄 Hesap Ekstresi", 
             TextLine2 = "(F10 Kısayol)",
@@ -1509,12 +1524,12 @@ public class MainForm : KryptonForm
         // ==========================================
         // SEKME 5: 💳 FATURALAR & FİNANS
         // ==========================================
-        var tabFin = new KryptonRibbonTab { Text = "💳 Faturalar & Finans" };
+        var tabFin = new CmdTab { Text = "💳 Faturalar & Finans" };
 
-        var grpInv = new KryptonRibbonGroup { TextLine1 = "Faturalar" };
-        var tripInv = new KryptonRibbonGroupTriple();
+        var grpInv = new CmdGroup { TextLine1 = "Faturalar" };
+        var tripInv = new CmdTriple();
 
-        var btnInvEntry = new KryptonRibbonGroupButton 
+        var btnInvEntry = new CmdButton 
         { 
             TextLine1 = "📄 E-Fatura Girişi", 
             TextLine2 = "XML/PDF Aktar (F7)",
@@ -1523,7 +1538,7 @@ public class MainForm : KryptonForm
         };
         btnInvEntry.Click += (s, e) => OpenInvoiceEntry();
 
-        var btnInvList = new KryptonRibbonGroupButton 
+        var btnInvList = new CmdButton 
         { 
             TextLine1 = "📋 Fatura Listesi", 
             TextLine2 = "Alış & Satış",
@@ -1532,7 +1547,7 @@ public class MainForm : KryptonForm
         };
         btnInvList.Click += (s, e) => OpenInvoicesPage();
 
-        var btnExcelInv = new KryptonRibbonGroupButton 
+        var btnExcelInv = new CmdButton 
         { 
             TextLine1 = "📊 Excel Raporu", 
             TextLine2 = "Faturaları Aktar",
@@ -1546,8 +1561,8 @@ public class MainForm : KryptonForm
         tripInv.Items.Add(btnExcelInv);
         grpInv.Items.Add(tripInv);
 
-        var tripInv2 = new KryptonRibbonGroupTriple();
-        var btnBatchInvRib = new KryptonRibbonGroupButton 
+        var tripInv2 = new CmdTriple();
+        var btnBatchInvRib = new CmdButton 
         { 
             TextLine1 = "📂 Toplu PDF Fatura", 
             TextLine2 = "Çoklu Yükle & Al",
@@ -1560,10 +1575,10 @@ public class MainForm : KryptonForm
 
         tabFin.Groups.Add(grpInv);
 
-        var grpCashFlow = new KryptonRibbonGroup { TextLine1 = "Kasa & Nakit Akışı" };
-        var tripCashFlow = new KryptonRibbonGroupTriple();
+        var grpCashFlow = new CmdGroup { TextLine1 = "Kasa & Nakit Akışı" };
+        var tripCashFlow = new CmdTriple();
 
-        var btnCashMov = new KryptonRibbonGroupButton 
+        var btnCashMov = new CmdButton 
         { 
             TextLine1 = "💳 Kasa Hareketleri", 
             TextLine2 = "Nakit Akışı & Kasa",
@@ -1572,7 +1587,7 @@ public class MainForm : KryptonForm
         };
         btnCashMov.Click += (s, e) => ShowPage(4);
 
-        var btnFinZ = new KryptonRibbonGroupButton 
+        var btnFinZ = new CmdButton 
         { 
             TextLine1 = "🔒 Gün Sonu (Z)", 
             TextLine2 = "Kasa Kapat & Rapor",
@@ -1581,7 +1596,7 @@ public class MainForm : KryptonForm
         };
         btnFinZ.Click += (s, e) => OpenDailyCashClosing();
 
-        var btnCashCollect = new KryptonRibbonGroupButton 
+        var btnCashCollect = new CmdButton 
         { 
             TextLine1 = "💵 Hızlı Tahsilat", 
             TextLine2 = "(F6 Kısayol)",
@@ -1597,10 +1612,10 @@ public class MainForm : KryptonForm
         tabFin.Groups.Add(grpCashFlow);
 
         // --- 3. MASRAFLAR, NET KÂR & DÖVİZ KURLARI GRUBU ---
-        var grpExpensesAndRates = new KryptonRibbonGroup { TextLine1 = "Giderler & Kurlar" };
-        var tripExpensesAndRates = new KryptonRibbonGroupTriple();
+        var grpExpensesAndRates = new CmdGroup { TextLine1 = "Giderler & Kurlar" };
+        var tripExpensesAndRates = new CmdTriple();
 
-        var btnExpenses = new KryptonRibbonGroupButton 
+        var btnExpenses = new CmdButton 
         { 
             TextLine1 = "📉 Dükkan Giderleri", 
             TextLine2 = "Net Kâr / Zarar",
@@ -1613,7 +1628,7 @@ public class MainForm : KryptonForm
             dlg.ShowDialog(this);
         };
 
-        var btnCurrency = new KryptonRibbonGroupButton 
+        var btnCurrency = new CmdButton 
         { 
             TextLine1 = "💱 Canlı TCMB", 
             TextLine2 = "Döviz Kurları",
@@ -1636,12 +1651,12 @@ public class MainForm : KryptonForm
         // ==========================================
         // SEKME 6: 📱 ARAÇLAR & MOBİL
         // ==========================================
-        var tabMob = new KryptonRibbonTab { Text = "📱 Araçlar & Mobil" };
+        var tabMob = new CmdTab { Text = "📱 Araçlar & Mobil" };
 
-        var grpSmart = new KryptonRibbonGroup { TextLine1 = "Akıllı Cihaz & Bot" };
-        var tripSmart = new KryptonRibbonGroupTriple();
+        var grpSmart = new CmdGroup { TextLine1 = "Akıllı Cihaz & Bot" };
+        var tripSmart = new CmdTriple();
 
-        var btnMobScan = new KryptonRibbonGroupButton 
+        var btnMobScan = new CmdButton 
         { 
             TextLine1 = "📱 Mobil Barkod", 
             TextLine2 = "Kamera Okuyucu",
@@ -1650,7 +1665,7 @@ public class MainForm : KryptonForm
         };
         btnMobScan.Click += (s, e) => OpenMobileScanner();
 
-        var btnNotifCenter = new KryptonRibbonGroupButton 
+        var btnNotifCenter = new CmdButton 
         { 
             TextLine1 = "🔔 SMS & Bildirim", 
             TextLine2 = "Mesaj Merkezi",
@@ -1663,9 +1678,9 @@ public class MainForm : KryptonForm
         tripSmart.Items.Add(btnNotifCenter);
         grpSmart.Items.Add(tripSmart);
 
-        var tripSmart2 = new KryptonRibbonGroupTriple();
+        var tripSmart2 = new CmdTriple();
 
-        var btnWhatsAppBot = new KryptonRibbonGroupButton 
+        var btnWhatsAppBot = new CmdButton 
         { 
             TextLine1 = "💬 WhatsApp Bot", 
             TextLine2 = "Online Mobil Portal",
@@ -1674,7 +1689,7 @@ public class MainForm : KryptonForm
         };
         btnWhatsAppBot.Click += (s, e) => OpenWhatsAppAssistantDialog();
 
-        var btnBatchInvMob = new KryptonRibbonGroupButton 
+        var btnBatchInvMob = new CmdButton 
         { 
             TextLine1 = "📂 Toplu Fatura", 
             TextLine2 = "Çoklu PDF Aktar",
@@ -1694,12 +1709,12 @@ public class MainForm : KryptonForm
         // ==========================================
         // SEKME 7: ⚙️ SİSTEM & YÖNETİM
         // ==========================================
-        var tabSys = new KryptonRibbonTab { Text = "⚙️ Sistem & Yönetim" };
+        var tabSys = new CmdTab { Text = "⚙️ Sistem & Yönetim" };
 
-        var grpSys = new KryptonRibbonGroup { TextLine1 = "Sistem & Güvenlik" };
-        var tripSys = new KryptonRibbonGroupTriple();
+        var grpSys = new CmdGroup { TextLine1 = "Sistem & Güvenlik" };
+        var tripSys = new CmdTriple();
 
-        var btnUsers = new KryptonRibbonGroupButton 
+        var btnUsers = new CmdButton 
         { 
             TextLine1 = "👤 Kullanıcılar", 
             TextLine2 = "Rol & Depo Yetki",
@@ -1708,7 +1723,7 @@ public class MainForm : KryptonForm
         };
         btnUsers.Click += (s, e) => ShowPage(6);
 
-        var btnLogs = new KryptonRibbonGroupButton 
+        var btnLogs = new CmdButton 
         { 
             TextLine1 = "📜 İşlem Logları", 
             TextLine2 = "Denetim İzi & Audit",
@@ -1717,7 +1732,7 @@ public class MainForm : KryptonForm
         };
         btnLogs.Click += (s, e) => ShowPage(5);
 
-        var btnBackup = new KryptonRibbonGroupButton 
+        var btnBackup = new CmdButton 
         { 
             TextLine1 = "💾 SQL Yedek Al", 
             TextLine2 = "Veritabanı Yedek",
@@ -1731,8 +1746,8 @@ public class MainForm : KryptonForm
         tripSys.Items.Add(btnBackup);
         grpSys.Items.Add(tripSys);
 
-        var tripSys2 = new KryptonRibbonGroupTriple();
-        var btnResetDbRibbon = new KryptonRibbonGroupButton 
+        var tripSys2 = new CmdTriple();
+        var btnResetDbRibbon = new CmdButton 
         { 
             TextLine1 = "⚠️ DB Sıfırla", 
             TextLine2 = "Fabrika Ayarlarına Dön",
@@ -1745,10 +1760,10 @@ public class MainForm : KryptonForm
 
         tabSys.Groups.Add(grpSys);
 
-        var grpCloud = new KryptonRibbonGroup { TextLine1 = "Bulut & Harici" };
-        var tripCloud = new KryptonRibbonGroupTriple();
+        var grpCloud = new CmdGroup { TextLine1 = "Bulut & Harici" };
+        var tripCloud = new CmdTriple();
 
-        var btnCloudBackup = new KryptonRibbonGroupButton 
+        var btnCloudBackup = new CmdButton 
         { 
             TextLine1 = "☁️ Bulut Yedekle", 
             TextLine2 = "Google Drive / Zip",
@@ -1771,10 +1786,10 @@ public class MainForm : KryptonForm
         grpCloud.Items.Add(tripCloud);
         tabSys.Groups.Add(grpCloud);
 
-        var grpConfig = new KryptonRibbonGroup { TextLine1 = "Yapılandırma & Menü" };
-        var tripConfig = new KryptonRibbonGroupTriple();
+        var grpConfig = new CmdGroup { TextLine1 = "Yapılandırma & Menü" };
+        var tripConfig = new CmdTriple();
 
-        var btnSettings = new KryptonRibbonGroupButton 
+        var btnSettings = new CmdButton 
         { 
             TextLine1 = "⚙️ Genel Ayarlar", 
             TextLine2 = "Sistem & Donanım",
@@ -1783,7 +1798,7 @@ public class MainForm : KryptonForm
         };
         btnSettings.Click += (s, e) => ShowPage(8);
 
-        var btnLicense = new KryptonRibbonGroupButton 
+        var btnLicense = new CmdButton 
         { 
             TextLine1 = "🔑 Lisans Durumu", 
             TextLine2 = "Aktivasyon & Süre",
@@ -1792,7 +1807,7 @@ public class MainForm : KryptonForm
         };
         btnLicense.Click += (s, e) => ShowPage(7);
 
-        var btnTheme = new KryptonRibbonGroupButton 
+        var btnTheme = new CmdButton 
         { 
             TextLine1 = "🎨 Tema Değiştir", 
             TextLine2 = "Görünüm Ayarları",
@@ -1806,21 +1821,8 @@ public class MainForm : KryptonForm
         tripConfig.Items.Add(btnTheme);
         grpConfig.Items.Add(tripConfig);
 
-        var tripPuzzle = new KryptonRibbonGroupTriple();
-        var btnPuzzle = new KryptonRibbonGroupButton
-        {
-            TextLine1 = "🧩 Menü Düzenle",
-            TextLine2 = "Puzzle / Kilitle",
-            ImageLarge = RibbonIconFactory.CreateIcon("settings", 32),
-            ImageSmall = RibbonIconFactory.CreateIcon("settings", 16)
-        };
-        btnPuzzle.Click += (s, e) =>
-        {
-            using var dlg = new RibbonCustomizerDialog(_ribbon, () => { });
-            dlg.ShowDialog(this);
-        };
-
-        var btnDbMaint = new KryptonRibbonGroupButton
+        var tripPuzzle = new CmdTriple();
+        var btnDbMaint = new CmdButton
         {
             TextLine1 = "⚡ DB Bakımı",
             TextLine2 = "Shrink & Hızlandır",
@@ -1854,16 +1856,15 @@ public class MainForm : KryptonForm
             }
         };
 
-        tripPuzzle.Items.Add(btnPuzzle);
         tripPuzzle.Items.Add(btnDbMaint);
         grpConfig.Items.Add(tripPuzzle);
 
         tabSys.Groups.Add(grpConfig);
 
-        var grpLogout = new KryptonRibbonGroup { TextLine1 = "Oturum" };
-        var tripLogout = new KryptonRibbonGroupTriple();
+        var grpLogout = new CmdGroup { TextLine1 = "Oturum" };
+        var tripLogout = new CmdTriple();
 
-        var btnLogout = new KryptonRibbonGroupButton 
+        var btnLogout = new CmdButton 
         { 
             TextLine1 = "🚪 Oturumu Kapat", 
             TextLine2 = "Güvenli Çıkış",
@@ -1876,7 +1877,7 @@ public class MainForm : KryptonForm
 
         if (curUser?.IsSuperUser == true)
         {
-            var btnKeygen = new KryptonRibbonGroupButton 
+            var btnKeygen = new CmdButton 
             { 
                 TextLine1 = "👑 Lisans Üretici", 
                 TextLine2 = "Süper Yönetici",
@@ -1891,7 +1892,6 @@ public class MainForm : KryptonForm
         tabSys.Groups.Add(grpLogout);
 
         _ribbon.RibbonTabs.Add(tabSys);
-        RibbonCustomizerDialog.ApplyToRibbon(_ribbon);
     }
 
     private void LogoutAction()
@@ -2131,7 +2131,7 @@ public class MainForm : KryptonForm
             Dock = DockStyle.Top,
             Height = 115,
             WrapContents = false,
-            AutoScroll = true,
+            AutoScroll = false,
             Padding = new Padding(0, 5, 0, 5)
         };
 
@@ -2154,11 +2154,10 @@ public class MainForm : KryptonForm
         {
             Dock = DockStyle.Top,
             Height = 360,
-            ColumnCount = 2,
+            ColumnCount = 1,
             Padding = new Padding(0, 10, 0, 10)
         };
-        splitTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        splitTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        splitTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
         // Sol: Kritik Stok Paneli
         var pnlCrit = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 8, 0) };
@@ -2170,17 +2169,16 @@ public class MainForm : KryptonForm
         pnlCrit.Controls.Add(lblCritTitle);
         lblCritTitle.SendToBack();
         _gridCriticalStock.BringToFront();
-        splitTable.Controls.Add(pnlCrit, 0, 0);
 
         // Sağ: En Çok Borcu Olan Müşteriler Paneli
-        var pnlDebtors = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(8, 0, 0, 0) };
+        var pnlDebtors = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0) };
         var lblDebtorTitle = new Label { Text = "💰 En Yüksek Bakiyeli Müşteriler (Veresiye Alacaklar)", Font = UITheme.TitleFont, ForeColor = UITheme.Primary, Dock = DockStyle.Top, Height = 30 };
         UITheme.ApplyGridStyle(_gridTopDebtors);
         pnlDebtors.Controls.Add(_gridTopDebtors);
         pnlDebtors.Controls.Add(lblDebtorTitle);
         lblDebtorTitle.SendToBack();
         _gridTopDebtors.BringToFront();
-        splitTable.Controls.Add(pnlDebtors, 1, 0);
+        splitTable.Controls.Add(pnlDebtors, 0, 0);
 
         // Son Hareketler Paneli
         var pnlRecent = new CardPanel { Dock = DockStyle.Top, Height = 250, Margin = new Padding(0, 10, 0, 15) };
@@ -2196,7 +2194,7 @@ public class MainForm : KryptonForm
         var pnlDashSearchTop = new Panel { Dock = DockStyle.Top, Height = 36 };
         var lblDashSearchTitle = new Label 
         { 
-            Text = "🔍 Hızlı Ürün Arama & Anında Satış (Çift Tıklayarak Satış Yapın):", 
+            Text = "🔍 Hızlı Ürün Arama & Anında Satış (Listeden ürüne tıklayın, satış ekranı açılır):", 
             Font = UITheme.TitleFont, 
             ForeColor = UITheme.Primary, 
             Dock = DockStyle.Left, 
@@ -2228,9 +2226,10 @@ public class MainForm : KryptonForm
 
         UITheme.ApplyGridStyle(_gridDashProductSearch);
         _gridDashProductSearch.Dock = DockStyle.Fill;
-        _gridDashProductSearch.CellDoubleClick += (s, e) =>
+        // Listeden bir ürüne tek tıklamak satış ekranını o ürünle açar
+        _gridDashProductSearch.CellClick += (s, e) =>
         {
-            if (_gridDashProductSearch.CurrentRow != null && _gridDashProductSearch.Columns.Contains("Id"))
+            if (e.RowIndex >= 0 && _gridDashProductSearch.CurrentRow != null && _gridDashProductSearch.Columns.Contains("Id"))
             {
                 long pid = Convert.ToInt64(_gridDashProductSearch.CurrentRow.Cells["Id"].Value);
                 OpenQuickSale("Satış", pid);
@@ -2308,7 +2307,6 @@ public class MainForm : KryptonForm
         _cmbDashLayoutMode.Items.AddRange(new object[] 
         { 
             "🌐 Standart (Tüm Bölümler Açık)",
-            "⚠️ Sadece Kritik Stoklar (Tam Odak)",
             "🕒 Sadece Son Finansallar (Tam Odak)",
             "💰 Sadece Borçlu Müşteriler (Tam Odak)",
             "🔍 Sadece Hızlı Ürün Satışı (Tam Odak)"
@@ -2441,8 +2439,6 @@ public class MainForm : KryptonForm
             _dashSplitTable.Height = 550;
             _dashPnlCrit.Visible = true;
             _dashPnlDebtors.Visible = false;
-            _dashSplitTable.ColumnStyles[0].Width = 100;
-            _dashSplitTable.ColumnStyles[1].Width = 0;
         }
         else if (mode.Contains("Son Finansallar"))
         {
@@ -2461,8 +2457,6 @@ public class MainForm : KryptonForm
             _dashSplitTable.Height = 550;
             _dashPnlCrit.Visible = false;
             _dashPnlDebtors.Visible = true;
-            _dashSplitTable.ColumnStyles[0].Width = 0;
-            _dashSplitTable.ColumnStyles[1].Width = 100;
         }
         else if (mode.Contains("Hızlı Ürün Satışı"))
         {
@@ -2478,8 +2472,6 @@ public class MainForm : KryptonForm
             _dashSplitTable.Height = 360;
             _dashPnlRecent.Height = 250;
             _dashPnlSearch.Height = 190;
-            _dashSplitTable.ColumnStyles[0].Width = 50;
-            _dashSplitTable.ColumnStyles[1].Width = 50;
             ApplyDashboardCustomCheckboxes();
         }
         LayoutDashboard();
@@ -2498,22 +2490,16 @@ public class MainForm : KryptonForm
         _dashPnlSearch.Visible = _chkDashSearch.Checked;
         _dashPnlCrit.Visible = _chkDashCrit.Checked;
         _dashPnlDebtors.Visible = _chkDashDebtors.Checked;
-        _dashSplitTable.Visible = _chkDashCrit.Checked || _chkDashDebtors.Checked;
+        _dashSplitTable.Visible = _chkDashDebtors.Checked;
 
         if (_chkDashCrit.Checked && !_chkDashDebtors.Checked)
         {
-            _dashSplitTable.ColumnStyles[0].Width = 100;
-            _dashSplitTable.ColumnStyles[1].Width = 0;
         }
         else if (!_chkDashCrit.Checked && _chkDashDebtors.Checked)
         {
-            _dashSplitTable.ColumnStyles[0].Width = 0;
-            _dashSplitTable.ColumnStyles[1].Width = 100;
         }
         else
         {
-            _dashSplitTable.ColumnStyles[0].Width = 50;
-            _dashSplitTable.ColumnStyles[1].Width = 50;
         }
 
         _dashPnlRecent.Visible = _chkDashRecent.Checked;
@@ -2576,7 +2562,7 @@ public class MainForm : KryptonForm
         header.Dock = DockStyle.Top;
         header.Height = 65;
 
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 3, 10, 3) };
 
         // Sol: Filtreler (Dock Left)
         var rowFilters = new FlowLayoutPanel
@@ -2785,7 +2771,7 @@ public class MainForm : KryptonForm
     {
         _pnlAccounts = new Panel { Dock = DockStyle.Fill };
 
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 3, 10, 3) };
 
         // Sol: Filtreler (Dock Left)
         var pnlLeftFilters = new FlowLayoutPanel
@@ -2879,7 +2865,7 @@ public class MainForm : KryptonForm
 
         var header = CreatePageHeader("Stok Giriş & Çıkış Hareketleri", "Tarih bazlı ürün girişleri, satış çıkışları, iadeler ve zayiler");
 
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 3, 10, 3) };
 
         // Sol: Filtreler (Dock Left)
         var pnlLeftFilters = new FlowLayoutPanel
@@ -3026,7 +3012,7 @@ public class MainForm : KryptonForm
 
         // ==================== SEKME 1: KASA & FİNANSAL HAREKETLER ====================
         var tabAccMov = new TabPage("💵 Kasa & Nakit Hareketleri") { BackColor = Color.FromArgb(248, 250, 252) };
-        var toolbarAcc = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
+        var toolbarAcc = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 3, 10, 3) };
 
         // Sol: Filtreler (Dock Left)
         var pnlLeftFiltersAcc = new FlowLayoutPanel
@@ -3440,31 +3426,6 @@ public class MainForm : KryptonForm
         cloudCard.Controls.Add(lblCloudTitle);
         flow.Controls.Add(cloudCard);
 
-        // 3. Ribbon Menü Puzzle Düzenleyicisi & Kilitleme Kartı
-        var puzzleCard = new CardPanel { Width = 840, Height = 190, Margin = new Padding(0, 0, 0, 20) };
-        var lblPuzzleTitle = new Label { Text = "🧩 Menü Düzenleyici (Puzzle Modu & Kilitleme)", Font = UITheme.TitleFont, ForeColor = Color.FromArgb(234, 88, 12), Dock = DockStyle.Top, Height = 30 };
-        var lblPuzzleDesc = new Label
-        {
-            Text = "İşletmenizde kullanmadığınız menü sekmelerini (Ürünler, Cari, Stok, Kasa vb.) Ribbon çubuğundan kaldırabilir veya tekrar ekleyebilirsiniz. Düzenlemeniz bittiğinde 'Menü Düzenini Kilitle' seçeneğiyle ekranı dondurabilir, personelin veya diğer kullanıcıların yanlışlıkla menüleri kaldırmasını önleyebilirsiniz.",
-            Font = UITheme.RegularFont,
-            ForeColor = UITheme.TextSecondary,
-            Dock = DockStyle.Top,
-            Height = 65
-        };
-
-        var puzzleButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 45 };
-        var btnOpenPuzzle = UITheme.CreateButton("🧩 Menü Sekmelerini Düzenle & Kilitle", Color.FromArgb(234, 88, 12), Color.White, (s, e) =>
-        {
-            using var dlg = new RibbonCustomizerDialog(_ribbon, () => { });
-            dlg.ShowDialog(this);
-        }, 280, 36);
-        puzzleButtons.Controls.Add(btnOpenPuzzle);
-
-        puzzleCard.Controls.Add(puzzleButtons);
-        puzzleCard.Controls.Add(lblPuzzleDesc);
-        puzzleCard.Controls.Add(lblPuzzleTitle);
-        flow.Controls.Add(puzzleCard);
-
         // 4. Excel İçe Aktarım Kartı
         var excelCard = new CardPanel { Width = 840, Height = 190, Margin = new Padding(0, 0, 0, 20) };
         var lblExTitle = new Label { Text = "📥 Excel'den Toplu Veri Yükleme", Font = UITheme.TitleFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 30 };
@@ -3528,50 +3489,30 @@ public class MainForm : KryptonForm
         waCard.Controls.Add(lblWaTitle);
         flow.Controls.Add(waCard);
 
-        // 7. Görsel Tema & Palet Yöneticisi Kartı
-        var themeCard = new CardPanel { Width = 840, Height = 175, Margin = new Padding(0, 0, 0, 20) };
-        var lblThemeTitle = new Label { Text = "🎨 Görsel Tema & Gece Modu (Dark Mode) Yönetimi", Font = UITheme.TitleFont, ForeColor = Color.FromArgb(124, 58, 237), Dock = DockStyle.Top, Height = 30 };
+        // 7. Görünüm (Açık / Koyu Tema)
+        var themeCard = new CardPanel { Width = 840, Height = 150, Margin = new Padding(0, 0, 0, 20) };
+        var lblThemeTitle = new Label { Text = "🎨 Görünüm", Font = UITheme.TitleFont, ForeColor = UITheme.Primary, Dock = DockStyle.Top, Height = 30 };
         var lblThemeDesc = new Label
         {
-            Text = "Krypton Toolkit motoru ile uygulamanın renk temasını anında değiştirebilirsiniz. Gece çalışma modu (Dark Mode), Microsoft 365, Office kurumsal temaları veya canlı Sparkle temalarından dilediğinizi seçin. Seçiminiz anında uygulanır ve otomatik olarak kaydedilir.",
+            Text = "Açık veya koyu temayı seçin. Seçiminiz kaydedilir ve program yeniden başlatıldığında tüm pencerelere uygulanır.",
             Font = UITheme.RegularFont,
             ForeColor = UITheme.TextSecondary,
             Dock = DockStyle.Top,
-            Height = 55
+            Height = 40
         };
 
         var themeButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 45, FlowDirection = FlowDirection.LeftToRight };
-        var cmbThemePage = new KryptonComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320, Height = 34 };
-        foreach (var t in AppThemeService.AvailableThemes) cmbThemePage.Items.Add(t);
-        cmbThemePage.SelectedItem = AppThemeService.CurrentTheme;
-        cmbThemePage.SelectedIndexChanged += (s, e) =>
+        foreach (var opt in AppThemeService.AvailableThemes)
         {
-            if (cmbThemePage.SelectedItem is AppThemeOption opt)
+            var themeOpt = opt;
+            bool selected = themeOpt == AppThemeService.CurrentTheme;
+            var btn = UITheme.CreateButton(themeOpt.DisplayName, selected ? UITheme.Primary : UITheme.BorderColor, selected ? Color.White : UITheme.TextPrimary, (s, e) =>
             {
-                AppThemeService.ApplyTheme(opt);
-            }
-        };
-
-        var btnDarkMode = UITheme.CreateKryptonButton("🌙 Gece Modu", Color.FromArgb(30, 41, 59), Color.White, (s, e) =>
-        {
-            var darkTheme = AppThemeService.AvailableThemes.FirstOrDefault(t => t.IsDark);
-            if (darkTheme != null)
-            {
-                cmbThemePage.SelectedItem = darkTheme;
-                AppThemeService.ApplyTheme(darkTheme);
-            }
-        }, 130, 34);
-
-        var btnLightMode = UITheme.CreateKryptonButton("☀️ Gündüz Modu", Color.FromArgb(2, 132, 199), Color.White, (s, e) =>
-        {
-            var lightTheme = AppThemeService.AvailableThemes[0];
-            cmbThemePage.SelectedItem = lightTheme;
-            AppThemeService.ApplyTheme(lightTheme);
-        }, 130, 34);
-
-        themeButtons.Controls.Add(cmbThemePage);
-        themeButtons.Controls.Add(btnDarkMode);
-        themeButtons.Controls.Add(btnLightMode);
+                AppThemeService.ApplyTheme(themeOpt);
+                MessageBox.Show("Tema kaydedildi. Programı yeniden başlattığınızda tüm pencerelere uygulanır.", "Görünüm", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }, 170, 34);
+            themeButtons.Controls.Add(btn);
+        }
 
         themeCard.Controls.Add(themeButtons);
         themeCard.Controls.Add(lblThemeDesc);
@@ -3591,7 +3532,7 @@ public class MainForm : KryptonForm
 
         var header = CreatePageHeader("İşlem & Güvenlik Logları (Audit Trail)", "Silinen veya değiştirilen tüm cariler, hesap hareketleri ve ürün kayıtları");
 
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 3, 10, 3) };
 
         // Sol: Filtreler
         var pnlLeftFilters = new FlowLayoutPanel
@@ -3704,7 +3645,7 @@ public class MainForm : KryptonForm
 
         var header = CreatePageHeader("Kullanıcı & Yetkilendirme Yönetimi", "Sistem kullanıcılarını tanımlayın, rollerini belirleyin ve modül yetkilerini yönetin");
 
-        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 8, 10, 8) };
+        var toolbar = new CardPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(10, 3, 10, 3) };
 
         // Sol: Arama & Yenileme
         var pnlLeftFilters = new FlowLayoutPanel
@@ -4001,7 +3942,7 @@ public class MainForm : KryptonForm
             };
             var lblGenDesc = new Label 
             { 
-                Text = "Bu kontrol paneli yalnızca Süper Kullanıcı (super / 367244) oturumunda görüntülenir. Normal yönetici veya personel ekranlarında gizlidir. Buradan müşterilerden gelen makine donanım kodlarına göre 1 yıllık benzersiz çevrimdışı aktivasyon anahtarları üretebilirsiniz.", 
+                Text = "Bu kontrol paneli yalnızca Süper Kullanıcı oturumunda görüntülenir. Normal yönetici veya personel ekranlarında gizlidir. Buradan müşterilerden gelen makine donanım kodlarına göre 1 yıllık benzersiz çevrimdışı aktivasyon anahtarları üretebilirsiniz.", 
                 Font = UITheme.RegularFont, 
                 ForeColor = UITheme.TextSecondary, 
                 Dock = DockStyle.Top, 
@@ -4101,7 +4042,6 @@ public class MainForm : KryptonForm
             _cardOverdue.ValueText = $"{s.OverdueReceivableTotal:N2} ₺";
             _cardOverdue.SubText = s.OverdueReceivableCount > 0 ? $"⚠️ {s.OverdueReceivableCount} Kişi Gecikmede (Tıkla)" : "Tüm vadeler güncel";
 
-            _gridCriticalStock.DataSource = DashboardService.GetCriticalStockProducts();
             _gridTopDebtors.DataSource = DashboardService.GetTopDebtorCustomers();
             _gridRecentTransactions.DataSource = DashboardService.GetRecentTransactions();
 
@@ -5142,8 +5082,18 @@ public class MainForm : KryptonForm
         }
     }
 
+    /// <summary>Kritik işlemler için yetkiyi kontrol eder; yoksa uyarı gösterir.</summary>
+    private bool Require(string permission, string actionDescription)
+    {
+        var u = UserService.CurrentUser;
+        if (u == null || u.HasPermission(permission)) return true;
+        MessageBox.Show($"{actionDescription} için yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        return false;
+    }
+
     private void AddStock()
     {
+        if (!Require(UserPermissions.StockMovementsCreate, "Manuel stok hareketi ekleme")) return;
         using var f = new StockForm();
         if (f.ShowDialog() == DialogResult.OK) RefreshAll();
     }
@@ -5167,7 +5117,7 @@ public class MainForm : KryptonForm
     private void OpenWarehouseTransfer()
     {
         var curUser = UserService.CurrentUser;
-        if (curUser != null && !curUser.HasPermission(UserPermissions.Warehouses))
+        if (curUser != null && !curUser.HasPermission(UserPermissions.WarehouseTransfer))
         {
             MessageBox.Show("Depolar arası ürün transferi modülüne erişim yetkiniz bulunmamaktadır.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
@@ -5404,6 +5354,7 @@ WHERE m.Id = $id", ("$id", id));
 
     private void BackupDatabaseClick(object? sender, EventArgs e)
     {
+        if (!Require(UserPermissions.SettingsBackup, "Veritabanı yedeği alma")) return;
         using var sfd = new SaveFileDialog
         {
             Filter = "SQL Server Veritabanı Yedeği (*.bak)|*.bak|Tüm Dosyalar (*.*)|*.*",
@@ -5426,6 +5377,7 @@ WHERE m.Id = $id", ("$id", id));
 
     private void RestoreDatabaseClick(object? sender, EventArgs e)
     {
+        if (!Require(UserPermissions.SettingsBackup, "Yedekten geri yükleme")) return;
         using var ofd = new OpenFileDialog
         {
             Filter = "SQL Server Veritabanı Yedeği (*.bak)|*.bak|Tüm Dosyalar (*.*)|*.*",
@@ -5453,9 +5405,9 @@ WHERE m.Id = $id", ("$id", id));
     private void ResetDatabaseAction()
     {
         var curUser = UserService.CurrentUser;
-        if (curUser != null && !curUser.IsSuperUser && !curUser.Role.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+        if (curUser != null && !curUser.IsSuperUser && !curUser.HasPermission(UserPermissions.SystemReset))
         {
-            MessageBox.Show("Veritabanını sıfırlama işlemi için Süper Yönetici veya Admin yetkisi gereklidir.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Veritabanını sıfırlama işlemi için 'Fabrika Ayarlarına Sıfırlama' yetkisi gereklidir.", "Yetki Yetersiz", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -5487,7 +5439,7 @@ WHERE m.Id = $id", ("$id", id));
                 "Veritabanı başarıyla sıfırlandı!\n\n" +
                 "• Tüm fatura, ürün, cari ve kasa kayıtları silindi.\n" +
                 "• Tüm ID sayaçları 1'e çekildi.\n" +
-                "• Varsayılan kullanıcı: admin (Şifre: 123456)\n" +
+                "• Kullanıcılar da silindi: program yeniden başlatıldığında yönetici şifresini yeniden belirlemeniz istenecek.\n" +
                 "• Varsayılan depo: Merkez Depo (ID: 1)\n\n" +
                 "Artık sıfırdan veri girişine başlayabilirsiniz.",
                 "Fabrika Ayarlarına Dönüldü",

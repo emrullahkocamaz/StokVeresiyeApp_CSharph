@@ -16,6 +16,7 @@ public class Product
     public double DiscountPercent { get; set; }
     public double VatPercent { get; set; } = 20;
     public double MinStockLevel { get; set; } = 5;
+    public double PackSize { get; set; } = 1; // Koli / paket içi adet (faturada koli yazarsa stoğa bu kadar adet girer)
     public bool IsActive { get; set; } = true;
     public string? ExpiryDate { get; set; } // yyyy-MM-dd
     public string? BatchNumber { get; set; } // Parti / Lot No

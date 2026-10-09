@@ -1,16 +1,16 @@
-using Krypton.Toolkit;
 using StokVeresiyeApp.Helpers;
 
 namespace StokVeresiyeApp.Forms;
 
-public class BaseModernForm : KryptonForm
+public class BaseModernForm : Form
 {
     protected TableLayoutPanel ContentTable = new();
-    protected KryptonButton BtnSave = new();
-    protected KryptonButton BtnCancel = new();
+    protected Button BtnSave = new();
+    protected Button BtnCancel = new();
 
     public BaseModernForm(string title, int width = 640, int height = 560)
     {
+        DoubleBuffered = true;
         Text = title;
         ClientSize = new Size(width, height);
         MinimumSize = new Size(900, 620);
@@ -51,11 +51,11 @@ public class BaseModernForm : KryptonForm
             Padding = new Padding(20, 14, 20, 14)
         };
 
-        BtnSave = UITheme.CreateKryptonButton("Kaydet", UITheme.Primary, Color.White, (s, e) => { }, 120, 36);
+        BtnSave = UITheme.CreateButton("Kaydet", UITheme.Primary, Color.White, (s, e) => { }, 120, 36);
         BtnSave.DialogResult = DialogResult.OK;
         BtnSave.Dock = DockStyle.Right;
 
-        BtnCancel = UITheme.CreateKryptonButton("İptal", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => { DialogResult = DialogResult.Cancel; Close(); }, 100, 36);
+        BtnCancel = UITheme.CreateButton("İptal", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => { DialogResult = DialogResult.Cancel; Close(); }, 100, 36);
         BtnCancel.Dock = DockStyle.Right;
 
         bottomPanel.Controls.Add(BtnCancel);

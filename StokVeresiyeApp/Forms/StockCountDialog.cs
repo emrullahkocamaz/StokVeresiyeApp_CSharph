@@ -193,7 +193,7 @@ public class StockCountDialog : Form
         var dt = Database.Query(@"
 SELECT 
     p.Id, p.Barcode, p.Code, p.Name, p.Unit,
-    (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) AS CurrentStock
+    ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) AS CurrentStock
 FROM Products p
 WHERE p.IsActive = 1 AND (p.Barcode = $b OR p.Code = $b)", ("$b", bc));
 
@@ -251,7 +251,7 @@ WHERE p.IsActive = 1 AND (p.Barcode = $b OR p.Code = $b)", ("$b", bc));
         var dt = Database.Query(@"
 SELECT 
     p.Id, p.Barcode, p.Code, p.Name, p.Unit,
-    (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) AS CurrentStock
+    ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) AS CurrentStock
 FROM Products p
 WHERE p.IsActive = 1
 ORDER BY p.Name ASC");

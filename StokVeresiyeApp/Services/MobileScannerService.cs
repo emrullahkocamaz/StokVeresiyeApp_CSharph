@@ -215,7 +215,7 @@ public static class MobileScannerService
     {
         var ips = GetLocalIpAddresses();
         string ip = ips.FirstOrDefault(x => !x.StartsWith("127.")) ?? "localhost";
-        return $"http://{ip}:{Port}/";
+        return BuildUrl(ip);
     }
 
     private static async Task ListenLoopAsync(CancellationToken ct)
@@ -236,25 +236,79 @@ public static class MobileScannerService
         }
     }
 
+    // ---- Erişim anahtarı ----
+    // Telefon bağlantısı ve QR kod bu anahtarı içerir. Anahtarı bilmeyen kimse ağdan borçlu listesi, ciro
+    // görüntüleyemez veya tahsilat ekleyemez. Anahtar kurulum başına rastgele üretilir ve kalıcıdır.
+    private static string? _accessKey;
+    private static readonly object _keyLock = new();
+
+    private static string KeyFilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StokVeresiyeApp", "mobile_key.txt");
+
+    public static string AccessKey
+    {
+        get
+        {
+            lock (_keyLock)
+            {
+                if (!string.IsNullOrEmpty(_accessKey)) return _accessKey;
+                try
+                {
+                    if (File.Exists(KeyFilePath))
+                    {
+                        string saved = File.ReadAllText(KeyFilePath).Trim();
+                        if (saved.Length >= 16) return _accessKey = saved;
+                    }
+                }
+                catch { }
+
+                _accessKey = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(12)).ToLowerInvariant();
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(KeyFilePath)!);
+                    File.WriteAllText(KeyFilePath, _accessKey);
+                }
+                catch { }
+                return _accessKey;
+            }
+        }
+    }
+
+    /// <summary>Telefonda açılacak tam bağlantı (anahtar dahil).</summary>
+    public static string BuildUrl(string host) => $"http://{host}:{Port}/?k={AccessKey}";
+
+    private static bool IsAuthorized(HttpListenerRequest req)
+    {
+        string? given = req.QueryString["k"] ?? req.Headers["X-Bilensis-Key"];
+        if (string.IsNullOrEmpty(given)) return false;
+        var a = Encoding.UTF8.GetBytes(given);
+        var b = Encoding.UTF8.GetBytes(AccessKey);
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(a, b);
+    }
+
     private static async Task ProcessRequestAsync(HttpListenerContext context)
     {
         var req = context.Request;
         var res = context.Response;
 
-        // CORS Başlıkları
-        res.Headers.Add("Access-Control-Allow-Origin", "*");
-        res.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        res.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
-
+        // CORS yok: telefon sayfası aynı adresten sunulduğu için başka sitelerin bu API'ye erişmesine gerek yoktur
         if (req.HttpMethod == "OPTIONS")
         {
-            res.StatusCode = 200;
+            res.StatusCode = 204;
             res.Close();
             return;
         }
 
         string rawUrl = req.RawUrl ?? "/";
         string path = rawUrl.Split('?')[0].ToLowerInvariant();
+
+        // Yalnızca sağlık kontrolü (ping) anahtarsız açıktır; diğer tüm adresler anahtar ister
+        if (path != "/api/ping" && !IsAuthorized(req))
+        {
+            res.StatusCode = 401;
+            await WriteTextAsync(res, "Yetkisiz. Bağlantı geçersiz: bilgisayardaki Bilensis uygulamasından QR kodu yeniden okutun.");
+            return;
+        }
 
         try
         {
@@ -329,8 +383,8 @@ SELECT TOP 1
     p.Id, p.Code, p.Barcode, p.Name, p.Category, p.Unit, 
     p.OpeningStock, p.PurchasePrice, p.SalePrice, p.WholesalePrice, p.SpecialPrice,
     p.VatPercent, p.MinStockLevel, p.ExpiryDate, p.BatchNumber,
-    COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Gelen', 'İade Giriş')), 0) AS TotalIn,
-    COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Satış', 'Satılan', 'Fire', 'Transfer Çıkış')), 0) AS TotalOut
+    (SELECT vs.TotalIn FROM vw_ProductStock vs WHERE vs.ProductId = p.Id) AS TotalIn,
+    (SELECT vs.TotalOut FROM vw_ProductStock vs WHERE vs.ProductId = p.Id) AS TotalOut
 FROM Products p
 WHERE p.IsActive = 1 AND (p.Barcode = @q OR p.Code = @q OR p.Name LIKE @like)
 ORDER BY CASE WHEN p.Barcode = @q THEN 0 WHEN p.Code = @q THEN 1 ELSE 2 END, p.Id DESC;",
@@ -356,15 +410,15 @@ ORDER BY CASE WHEN p.Barcode = @q THEN 0 WHEN p.Code = @q THEN 1 ELSE 2 END, p.I
             // Depo dağılımı
             var dtWh = Database.Query(@"
 SELECT w.Name AS WhName, 
-       COALESCE(SUM(CASE WHEN sm.MovementType IN ('Gelen', 'İade Giriş') THEN sm.Quantity 
-                         WHEN sm.MovementType IN ('Satış', 'Satılan', 'Fire', 'Transfer Çıkış') THEN -sm.Quantity 
+       COALESCE(SUM(CASE WHEN sm.MovementType IN ('Gelen', 'İade Giriş', 'Transfer Giriş') THEN sm.Quantity 
+                         WHEN sm.MovementType IN ('Satış', 'Satılan', 'Giden', 'Çıkış', 'Fire', 'Fire / Zayi', 'Transfer Çıkış') THEN -sm.Quantity 
                          ELSE 0 END), 0) AS Qty
 FROM Warehouses w
 LEFT JOIN StockMovements sm ON sm.WarehouseId = w.Id AND sm.ProductId = @pid
 WHERE w.IsActive = 1
 GROUP BY w.Id, w.Name
-HAVING COALESCE(SUM(CASE WHEN sm.MovementType IN ('Gelen', 'İade Giriş') THEN sm.Quantity 
-                         WHEN sm.MovementType IN ('Satış', 'Satılan', 'Fire', 'Transfer Çıkış') THEN -sm.Quantity 
+HAVING COALESCE(SUM(CASE WHEN sm.MovementType IN ('Gelen', 'İade Giriş', 'Transfer Giriş') THEN sm.Quantity 
+                         WHEN sm.MovementType IN ('Satış', 'Satılan', 'Giden', 'Çıkış', 'Fire', 'Fire / Zayi', 'Transfer Çıkış') THEN -sm.Quantity 
                          ELSE 0 END), 0) > 0;",
                 ("@pid", pid)
             );
@@ -546,10 +600,7 @@ FROM AccountMovements;");
 SELECT COUNT(*) AS CritCount
 FROM Products p
 WHERE p.IsActive = 1 AND
-      (p.OpeningStock + 
-       COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Gelen', 'İade Giriş')), 0) -
-       COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Satış', 'Satılan', 'Fire', 'Transfer Çıkış')), 0)
-      ) <= p.MinStockLevel;");
+      (SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id) <= p.MinStockLevel;");
             int critCount = dtCrit.Rows.Count > 0 ? Convert.ToInt32(dtCrit.Rows[0]["CritCount"]) : 0;
 
             // Toplam Alacak & Borçlu Sayısı

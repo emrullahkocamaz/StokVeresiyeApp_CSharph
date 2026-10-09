@@ -1,4 +1,3 @@
-using Krypton.Toolkit;
 using StokVeresiyeApp.Data;
 using StokVeresiyeApp.Forms;
 using StokVeresiyeApp.Services;
@@ -69,7 +68,7 @@ internal static class Program
                 Database.Initialize();
                 LicenseService.Initialize();
                 UserService.Initialize();
-                InvoiceService.MigrateExistingPdfsToDatabase();
+                _ = Task.Run(() => InvoiceService.MigrateExistingPdfsToDatabase());
                 _ = Task.Run(() => MobileScannerService.Start());
                 databaseReady = true;
             }
@@ -101,6 +100,31 @@ internal static class Program
                 {
                     return;
                 }
+            }
+        }
+
+        // Süper kullanıcı (lisans üretici) şifresini belirleme: StokVeresiyeApp.exe --set-super
+        if (args.Contains("--set-super"))
+        {
+            using var superDlg = new PasswordSetupDialog("Süper Kullanıcı Şifresi", "Lisans üretici penceresini açan süper kullanıcı için yeni şifre belirleyin. Bu şifre kodda değil, veritabanında karma olarak saklanır.", true);
+            if (superDlg.ShowDialog() == DialogResult.OK)
+            {
+                UserService.SetSuperUserPassword(superDlg.NewPassword);
+                MessageBox.Show("Süper kullanıcı şifresi güncellendi.", "Bilensis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            return;
+        }
+
+        // İlk kurulum: hiç kullanıcı yoksa yönetici şifresini kullanıcı belirler (kodda varsayılan şifre yoktur)
+        if (UserService.NeedsFirstRunSetup())
+        {
+            using var setupDlg = new PasswordSetupDialog("İlk Kurulum - Yönetici Şifresi", "Hoş geldiniz. Yönetici (admin) hesabı için bir şifre belirleyin. Programa bu şifreyle giriş yapacaksınız; kimseyle paylaşmayın.", false);
+            if (setupDlg.ShowDialog() != DialogResult.OK) return;
+            var created = UserService.CreateInitialAdmin(setupDlg.NewPassword);
+            if (!created.Success)
+            {
+                MessageBox.Show(created.Message, "Bilensis", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
         }
 

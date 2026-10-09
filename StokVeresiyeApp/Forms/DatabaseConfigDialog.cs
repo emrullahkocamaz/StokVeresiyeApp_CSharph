@@ -215,7 +215,7 @@ public class DatabaseConfigDialog : Form
         var cfg = BuildConfigFromUi();
         try
         {
-            Database.EnsureLocalDbStarted();
+            Database.EnsureLocalDbStarted(force: true);
             string cs = cfg.BuildConnectionString("master");
             using var conn = new SqlConnection(cs);
             conn.Open();

@@ -11,7 +11,6 @@ public static class LicenseService
 {
     private const string SecretSalt = "BILGE_STOK_OFFLINE_LICENSE_2026_EMRKCM_SECURE_KEY";
     public const string SupportEmail = "emrkcm@gmail.com";
-    public const string SuperUserPassword = "367244"; // Süper kullanıcı şifresi (lisans üretimi için)
 
     private static readonly string LicenseFilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

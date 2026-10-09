@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Models;
 using StokVeresiyeApp.Services;

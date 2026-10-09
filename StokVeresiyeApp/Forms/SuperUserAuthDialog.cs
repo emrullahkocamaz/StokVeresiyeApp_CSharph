@@ -93,7 +93,7 @@ public class SuperUserAuthDialog : Form
     private void VerifyClick(object? sender, EventArgs e)
     {
         string pass = _txtPassword.Text.Trim();
-        if (pass == LicenseService.SuperUserPassword)
+        if (UserService.VerifySuperPassword(pass))
         {
             DialogResult = DialogResult.OK;
             Close();

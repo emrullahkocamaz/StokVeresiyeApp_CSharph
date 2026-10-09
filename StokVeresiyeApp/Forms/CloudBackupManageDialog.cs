@@ -4,26 +4,33 @@ using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Krypton.Toolkit;
 using StokVeresiyeApp.Helpers;
 using StokVeresiyeApp.Models;
 using StokVeresiyeApp.Services;
 
 namespace StokVeresiyeApp.Forms;
 
-public class CloudBackupManageDialog : KryptonForm
+public class CloudBackupManageDialog : Form
 {
     // Ayarlar Sekmesi Kontrolleri
-    private readonly KryptonTextBox _txtGmail = new();
-    private readonly KryptonTextBox _txtPassword = new() { PasswordChar = '●' };
-    private readonly KryptonTextBox _txtTargetDir = new();
-    private readonly KryptonCheckBox _chkOnExit = new() { Text = "🔒 Program Her Kapandığında Otomatik Bulut Yedeği Al (Tavsiye Edilir)", AutoSize = true };
-    private readonly KryptonCheckBox _chkOnClosing = new() { Text = "🔒 Kasa Gün Sonu (Z Raporu) Kapandığında Otomatik Yedek Al", AutoSize = true };
-    private readonly KryptonCheckBox _chkDaily = new() { Text = "📅 Günlük Otomatik Arka Plan Yedeği Al", AutoSize = true };
-    private readonly KryptonCheckBox _chkSendGmail = new() { Text = "✉️ Alınan .zip Yedeği Gmail Kutusuna Güvenli Ek Olarak İlet", AutoSize = true };
+    private readonly TextBox _txtGmail = new();
+    private readonly TextBox _txtPassword = new() { PasswordChar = '●' };
+    private readonly TextBox _txtTargetDir = new();
+    private readonly CheckBox _chkOnExit = new() { Text = "🔒 Program Her Kapandığında Otomatik Bulut Yedeği Al (Tavsiye Edilir)", AutoSize = true };
+    private readonly CheckBox _chkOnClosing = new() { Text = "🔒 Kasa Gün Sonu (Z Raporu) Kapandığında Otomatik Yedek Al", AutoSize = true };
+    private readonly CheckBox _chkDaily = new() { Text = "📅 Günlük Otomatik Arka Plan Yedeği Al", AutoSize = true };
+    private readonly CheckBox _chkSendGmail = new() { Text = "✉️ Alınan .zip Yedeği Gmail Kutusuna Güvenli Ek Olarak İlet", AutoSize = true };
+
+    // PDF Fatura Arşivi sekmesi
+    private readonly TextBox _txtPdfArchive = new();
+    private readonly TextBox _txtPdfPc = new();
+    private readonly TextBox _txtPdfDrive = new();
+    private readonly ComboBox _cmbPdfDriveMode = new();
+    private readonly CheckBox _chkPdfDaily = new() { Text = "📅 PDF faturaları günde bir kez otomatik yedekle (bilgisayara ve Google Drive'a)", AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
+    private readonly Label _lblPdfStatus = new();
 
     // Yedek Listesi Kontrolleri
-    private readonly KryptonDataGridView _gridBackups = new();
+    private readonly DataGridView _gridBackups = new();
     private readonly Label _lblStatus = new();
 
     public CloudBackupManageDialog()
@@ -94,10 +101,10 @@ public class CloudBackupManageDialog : KryptonForm
             Padding = new Padding(0, 8, 0, 0)
         };
 
-        var btnClose = UITheme.CreateKryptonButton("Kapat", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => Close(), 90, 36);
+        var btnClose = UITheme.CreateButton("Kapat", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => Close(), 90, 36);
         btnClose.Dock = DockStyle.Right;
 
-        var btnSave = UITheme.CreateKryptonButton("💾 Ayarları Kaydet", UITheme.Primary, Color.White, (s, e) => SaveSettings(showMessage: true), 160, 36);
+        var btnSave = UITheme.CreateButton("💾 Ayarları Kaydet", UITheme.Primary, Color.White, (s, e) => SaveSettings(showMessage: true), 160, 36);
         btnSave.Dock = DockStyle.Right;
 
         bottomPanel.Controls.Add(lblHint);
@@ -224,8 +231,89 @@ public class CloudBackupManageDialog : KryptonForm
         scrollSettings.Controls.Add(flowSettings);
         tabSettings.Controls.Add(scrollSettings);
 
+        // ==========================================
+        // 3. SEKME: PDF FATURA ARŞİVİ
+        // ==========================================
+        var tabPdf = new TabPage("🧾 PDF Fatura Arşivi") { BackColor = UITheme.Background, Padding = new Padding(20) };
+        var scrollPdf = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+        var flowPdf = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            Padding = new Padding(0, 0, 0, 20)
+        };
+
+        var lblPdfBanner = new Label
+        {
+            Text = "ℹ️ Fatura PDF'leri veritabanına değil, aşağıdaki arşiv klasörüne kaydedilir. Fatura kaydedilirken PDF önce buraya kopyalanır ve doğrulanır; kaynak dosya (e-posta eki, USB, indirilenler) sonra silinse bile fatura belgesi kaybolmaz. Günlük yedek yalnızca bu PDF'leri bilgisayardaki ikinci klasöre ve Google Drive klasörüne kopyalar (veritabanı yedeği ayrıdır).",
+            Font = UITheme.RegularFont,
+            ForeColor = Color.FromArgb(30, 64, 175),
+            BackColor = Color.FromArgb(239, 246, 255),
+            Padding = new Padding(12),
+            Width = 780,
+            Height = 105
+        };
+
+        _txtPdfArchive.Width = 560;
+        _txtPdfPc.Width = 560;
+        _txtPdfDrive.Width = 560;
+
+        FlowLayoutPanel DirRow(TextBox box)
+        {
+            var row = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+            var btn = UITheme.CreateButton("📁 Gözat", UITheme.Secondary, Color.White, (s, e) =>
+            {
+                using var fbd = new FolderBrowserDialog { SelectedPath = box.Text };
+                if (fbd.ShowDialog() == DialogResult.OK) box.Text = fbd.SelectedPath;
+            }, 90, 32);
+            row.Controls.Add(box);
+            row.Controls.Add(btn);
+            return row;
+        }
+
+        _cmbPdfDriveMode.DropDownStyle = ComboBoxStyle.DropDownList;
+        _cmbPdfDriveMode.Width = 520;
+        _cmbPdfDriveMode.Items.AddRange(new object[]
+        {
+            "Her PDF faturada sor (Google Drive'a da kopyalansın mı?)",
+            "Otomatik: her PDF faturayı hemen Google Drive klasörüne de kopyala",
+            "Sorma: yalnızca günlük otomatik yedek çalışsın"
+        });
+
+        var btnPdfBackupNow = UITheme.CreateButton("💾 Şimdi PDF Yedeği Al", UITheme.Primary, Color.White, (s, e) => PdfBackupNow(), 200, 36);
+        var btnOpenPdfFolder = UITheme.CreateButton("📁 Arşiv Klasörünü Aç", UITheme.Secondary, Color.White, (s, e) => OpenFolder(_txtPdfArchive.Text), 190, 36);
+        var pnlPdfButtons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 16, 0, 0) };
+        pnlPdfButtons.Controls.Add(btnPdfBackupNow);
+        pnlPdfButtons.Controls.Add(btnOpenPdfFolder);
+
+        _lblPdfStatus.AutoSize = false;
+        _lblPdfStatus.Width = 780;
+        _lblPdfStatus.Height = 70;
+        _lblPdfStatus.Font = UITheme.SmallFont;
+        _lblPdfStatus.ForeColor = UITheme.TextSecondary;
+        _lblPdfStatus.Margin = new Padding(0, 12, 0, 0);
+
+        flowPdf.Controls.Add(lblPdfBanner);
+        flowPdf.Controls.Add(new Label { Text = "PDF Arşiv Klasörü (faturalar önce buraya kaydedilir):", AutoSize = true, Font = new Font(UITheme.RegularFont, FontStyle.Bold), Margin = new Padding(0, 15, 0, 4) });
+        flowPdf.Controls.Add(DirRow(_txtPdfArchive));
+        flowPdf.Controls.Add(new Label { Text = "Bilgisayardaki Yedek Klasörü (mümkünse başka bir disk veya harici disk seçin):", AutoSize = true, Font = new Font(UITheme.RegularFont, FontStyle.Bold), Margin = new Padding(0, 12, 0, 4) });
+        flowPdf.Controls.Add(DirRow(_txtPdfPc));
+        flowPdf.Controls.Add(new Label { Text = "Google Drive Klasörü (Google Drive masaüstü uygulaması bu klasörü bulutla senkronize eder):", AutoSize = true, Font = new Font(UITheme.RegularFont, FontStyle.Bold), Margin = new Padding(0, 12, 0, 4) });
+        flowPdf.Controls.Add(DirRow(_txtPdfDrive));
+        flowPdf.Controls.Add(new Label { Text = "Yeni PDF fatura girildiğinde:", AutoSize = true, Font = new Font(UITheme.RegularFont, FontStyle.Bold), Margin = new Padding(0, 14, 0, 4) });
+        flowPdf.Controls.Add(_cmbPdfDriveMode);
+        flowPdf.Controls.Add(_chkPdfDaily);
+        flowPdf.Controls.Add(pnlPdfButtons);
+        flowPdf.Controls.Add(_lblPdfStatus);
+
+        scrollPdf.Controls.Add(flowPdf);
+        tabPdf.Controls.Add(scrollPdf);
+
         tabs.TabPages.Add(tabBackups);
         tabs.TabPages.Add(tabSettings);
+        tabs.TabPages.Add(tabPdf);
 
         var centerPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(15) };
         centerPanel.Controls.Add(tabs);
@@ -250,6 +338,59 @@ public class CloudBackupManageDialog : KryptonForm
         _chkOnClosing.Checked = cfg.BackupOnClosing;
         _chkDaily.Checked = cfg.DailyBackupEnabled;
         _chkSendGmail.Checked = cfg.SendToGmail;
+
+        _txtPdfArchive.Text = PdfArchiveService.ArchiveRoot;
+        _txtPdfPc.Text = PdfArchiveService.PcBackupRoot;
+        _txtPdfDrive.Text = PdfArchiveService.DriveRoot;
+        _cmbPdfDriveMode.SelectedIndex = cfg.PdfDriveMode switch { "Always" => 1, "Never" => 2, _ => 0 };
+        _chkPdfDaily.Checked = cfg.DailyPdfBackupEnabled;
+        UpdatePdfStatus();
+    }
+
+    private void UpdatePdfStatus()
+    {
+        try
+        {
+            string root = _txtPdfArchive.Text.Trim();
+            int count = Directory.Exists(root)
+                ? Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Count(f => !f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                : 0;
+            var last = CloudBackupService.Config.LastPdfBackupDate;
+            string drive = string.IsNullOrWhiteSpace(_txtPdfDrive.Text)
+                ? "⚠️ Google Drive klasörü bulunamadı. Google Drive masaüstü uygulamasını kurun veya klasörü seçin."
+                : "☁️ Google Drive klasörü hazır.";
+            _lblPdfStatus.Text = $"Arşivdeki dosya sayısı: {count}\nSon PDF yedeği: {(last.HasValue ? last.Value.ToString("dd.MM.yyyy HH:mm") : "henüz alınmadı")}\n{drive}";
+        }
+        catch { _lblPdfStatus.Text = ""; }
+    }
+
+    private void OpenFolder(string path)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path)) Directory.CreateDirectory(path);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Klasör açılamadı: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private async void PdfBackupNow()
+    {
+        SaveSettings(showMessage: false);
+        Cursor = Cursors.WaitCursor;
+        try
+        {
+            var res = await Task.Run(() => PdfArchiveService.BackupAll());
+            MessageBox.Show(res.Message, res.Success ? "PDF Yedeği Alındı" : "PDF Yedeği Uyarısı", MessageBoxButtons.OK, res.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            UpdatePdfStatus();
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
     }
 
     private void SaveSettings(bool showMessage)
@@ -262,6 +403,12 @@ public class CloudBackupManageDialog : KryptonForm
         cfg.BackupOnClosing = _chkOnClosing.Checked;
         cfg.DailyBackupEnabled = _chkDaily.Checked;
         cfg.SendToGmail = _chkSendGmail.Checked;
+
+        cfg.PdfArchiveDirectory = _txtPdfArchive.Text.Trim();
+        cfg.PdfPcBackupDirectory = _txtPdfPc.Text.Trim();
+        cfg.PdfDriveDirectory = _txtPdfDrive.Text.Trim();
+        cfg.PdfDriveMode = _cmbPdfDriveMode.SelectedIndex switch { 1 => "Always", 2 => "Never", _ => "Ask" };
+        cfg.DailyPdfBackupEnabled = _chkPdfDaily.Checked;
 
         CloudBackupService.SaveConfig();
 

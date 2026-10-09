@@ -1,5 +1,4 @@
 using System.Drawing;
-using Krypton.Toolkit;
 
 namespace StokVeresiyeApp.Forms;
 
@@ -14,9 +13,8 @@ public class QuickPurchaseDialog : QuickSaleDialog
     {
         base.ApplyOperationTheme();
         this.BackColor = Color.FromArgb(239, 253, 245);
-        BtnSave.StateCommon.Back.Color1 = Color.FromArgb(22, 163, 74);
-        BtnSave.StateCommon.Back.Color2 = Color.FromArgb(5, 150, 105);
-        BtnSave.StateCommon.Content.ShortText.Color1 = Color.White;
+        BtnSave.BackColor = Color.FromArgb(22, 163, 74);
+        BtnSave.ForeColor = Color.White;
         if (_lblTouchTitle != null)
         {
             _lblTouchTitle.ForeColor = Color.FromArgb(22, 101, 52);

@@ -118,10 +118,10 @@ SELECT
     p.Category,
     p.Unit,
     p.MinStockLevel,
-    (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) AS CurrentStock
+    ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) AS CurrentStock
 FROM Products p
 WHERE p.IsActive = 1
-  AND (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) <= p.MinStockLevel
+  AND ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) <= p.MinStockLevel
 ORDER BY CurrentStock ASC";
 
             var dt = Database.Query(sql);
@@ -196,12 +196,12 @@ SELECT
     p.Unit,
     p.ExpiryDate,
     COALESCE(p.BatchNumber, '') AS BatchNumber,
-    (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) AS CurrentStock
+    ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) AS CurrentStock
 FROM Products p
 WHERE p.IsActive = 1
   AND p.ExpiryDate IS NOT NULL 
   AND p.ExpiryDate != ''
-  AND (p.OpeningStock + COALESCE((SELECT SUM(CASE WHEN MovementType IN ('Gelen','İade Giriş') THEN Quantity ELSE -Quantity END) FROM StockMovements sm WHERE sm.ProductId=p.Id), 0)) > 0
+  AND ((SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id)) > 0
 ORDER BY p.ExpiryDate ASC";
 
             var dt = Database.Query(sql);

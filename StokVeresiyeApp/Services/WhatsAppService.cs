@@ -332,16 +332,10 @@ FROM AccountMovements;");
         {
             var dt = Database.Query(@"
 SELECT TOP 15 p.Code, p.Barcode, p.Name, p.MinStockLevel,
-       (p.OpeningStock + 
-        COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Gelen', 'İade Giriş')), 0) -
-        COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Satış', 'Satılan', 'Fire', 'Transfer Çıkış')), 0)
-       ) AS CurrentStock
+       (SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id) AS CurrentStock
 FROM Products p
 WHERE p.IsActive = 1 AND
-      (p.OpeningStock + 
-       COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Gelen', 'İade Giriş')), 0) -
-       COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Satış', 'Satılan', 'Fire', 'Transfer Çıkış')), 0)
-      ) <= p.MinStockLevel
+      (SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id) <= p.MinStockLevel
 ORDER BY CurrentStock ASC;");
 
             var sb = new StringBuilder();
@@ -457,10 +451,7 @@ ORDER BY Balance DESC;");
             {
                 var dt = Database.Query(@"
 SELECT TOP 3 Id, Code, Barcode, Name, SalePrice, WholesalePrice,
-       (OpeningStock + 
-        COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Gelen', 'İade Giriş')), 0) -
-        COALESCE((SELECT SUM(sm.Quantity) FROM StockMovements sm WHERE sm.ProductId = p.Id AND sm.MovementType IN ('Satış', 'Satılan', 'Fire', 'Transfer Çıkış')), 0)
-       ) AS CurrentStock
+       (SELECT vs.CurrentStock FROM vw_ProductStock vs WHERE vs.ProductId = p.Id) AS CurrentStock
 FROM Products p
 WHERE IsActive = 1 AND (Barcode = @q OR Code = @q OR Name LIKE @like)
 ORDER BY CASE WHEN Barcode = @q THEN 0 WHEN Code = @q THEN 1 ELSE 2 END, Id DESC;",

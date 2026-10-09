@@ -47,7 +47,8 @@ WHERE MovementDate = @d", Database.Param("@d", dateStr));
                 string method = r["Method"]?.ToString() ?? "Nakit";
                 double amt = Convert.ToDouble(r["Amount"]);
 
-                if (type == "Tahsilat" || (type == "Satış" && method != "Veresiye (Açık Hesap)"))
+                // Peşin satışta hem Satış hem Tahsilat satırı yazılır; gerçek para girişi yalnızca Tahsilat satırıdır
+                if (type == "Tahsilat")
                 {
                     if (method.Equals("Kredi Kartı", StringComparison.OrdinalIgnoreCase))
                     {
@@ -63,7 +64,7 @@ WHERE MovementDate = @d", Database.Param("@d", dateStr));
                         cashSales += amt;
                     }
                 }
-                else if (type == "Ödeme" || type == "Gider" || type == "Alış")
+                else if (type == "Ödeme" || type == "Gider")
                 {
                     if (method.Equals("Nakit", StringComparison.OrdinalIgnoreCase))
                     {
@@ -71,6 +72,14 @@ WHERE MovementDate = @d", Database.Param("@d", dateStr));
                     }
                 }
             }
+        }
+        catch { }
+
+        // Gider ekranından girilen nakit giderler (Expenses tablosu) kasadan çıkar
+        try
+        {
+            var nakitGider = Database.ExecuteScalar("SELECT COALESCE(SUM(Amount), 0) FROM Expenses WHERE ExpenseDate = @d AND PaymentMethod = N'Nakit'", Database.Param("@d", dateStr));
+            if (nakitGider != null && nakitGider != DBNull.Value) cashExpenses += Convert.ToDouble(nakitGider);
         }
         catch { }
 

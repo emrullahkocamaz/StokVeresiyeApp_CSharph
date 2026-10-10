@@ -72,22 +72,21 @@ public class AccountStatementDialog : Form
             Padding = new Padding(15, 14, 15, 14)
         };
 
-        var btnAddPayment = UITheme.CreateButton("+ Tahsilat / Ödeme Ekle", UITheme.Success, Color.White, AddPaymentClick, 180, 36);
-        var btnExportExcel = UITheme.CreateButton("📊 Excel'e Aktar", UITheme.Primary, Color.White, ExportExcelClick, 140, 36);
-        var btnWhatsApp = UITheme.CreateButton("📲 WhatsApp ile Gönder", Color.FromArgb(37, 211, 102), Color.White, SendWhatsAppClick, 190, 36);
+        var btnAddPayment = UITheme.CreateButton("+ Tahsilat / Ödeme", UITheme.Success, Color.White, AddPaymentClick, 160, 36);
+        var btnExportExcel = UITheme.CreateButton("📊 Excel", UITheme.Primary, Color.White, ExportExcelClick, 100, 36);
+        var btnPdf = UITheme.CreateButton("📄 PDF Ekstre", Color.FromArgb(13, 148, 136), Color.White, PdfClick, 130, 36);
+        var btnPdfWa = UITheme.CreateButton("📲 PDF'i WhatsApp'a", Color.FromArgb(37, 211, 102), Color.White, PdfWhatsAppClick, 170, 36);
+        var btnPdfMail = UITheme.CreateButton("✉️ E-posta", Color.FromArgb(79, 70, 229), Color.White, PdfMailClick, 110, 36);
+        var btnWhatsApp = UITheme.CreateButton("💬 Özet Mesaj", Color.FromArgb(22, 163, 74), Color.White, SendWhatsAppClick, 120, 36);
         var btnClose = UITheme.CreateButton("Kapat", UITheme.Secondary, Color.White, (s, e) => Close(), 90, 36);
 
-        btnAddPayment.Dock = DockStyle.Left;
-        btnExportExcel.Dock = DockStyle.Left;
-        btnWhatsApp.Dock = DockStyle.Left;
         btnClose.Dock = DockStyle.Right;
+        var flowBtns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+        flowBtns.Controls.AddRange(new Control[] { btnAddPayment, btnExportExcel, btnPdf, btnPdfWa, btnPdfMail, btnWhatsApp });
 
-        bottomPanel.Controls.Add(btnAddPayment);
-        bottomPanel.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 10 });
-        bottomPanel.Controls.Add(btnExportExcel);
-        bottomPanel.Controls.Add(new Panel { Dock = DockStyle.Left, Width = 10 });
-        bottomPanel.Controls.Add(btnWhatsApp);
+        bottomPanel.Controls.Add(flowBtns);
         bottomPanel.Controls.Add(btnClose);
+        flowBtns.BringToFront();
 
         // Dock hiyerarşisi: Grid (Fill) önce, sonra Bottom ve Top eklenip SendToBack yapılır
         Controls.Add(gridPanel);
@@ -165,6 +164,51 @@ public class AccountStatementDialog : Form
         
         _lblBalance.Text = $"Güncel Bakiye: {Math.Abs(runningBalance):N2} ₺\n{bakiyeTur}";
         _lblBalance.ForeColor = runningBalance > 0 ? (acc.Type == "Müşteri" ? UITheme.Success : UITheme.Danger) : UITheme.TextSecondary;
+    }
+
+    private string? CreatePdfOrWarn(out Models.Account? acc)
+    {
+        acc = AccountService.GetById(_accountId);
+        if (acc == null) return null;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            return AccountStatementService.CreatePdf(_accountId);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"PDF oluşturulamadı: {ex.Message}", "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return null;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private void PdfClick(object? sender, EventArgs e)
+    {
+        var path = CreatePdfOrWarn(out _);
+        if (path == null) return;
+        FileLauncherHelper.OpenDocument(path, "Cari ekstre");
+    }
+
+    private void PdfWhatsAppClick(object? sender, EventArgs e)
+    {
+        var path = CreatePdfOrWarn(out var acc);
+        if (path == null || acc == null) return;
+        var r = AccountStatementService.PrepareForWhatsApp(acc, path, AccountStatementService.GetBalance(acc));
+        MessageBox.Show(r.Success ? r.Message + "\nMesaj kutusuna Ctrl+V ile yapıştırıp gönderin." : r.Message,
+            "WhatsApp", MessageBoxButtons.OK, r.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+    }
+
+    private void PdfMailClick(object? sender, EventArgs e)
+    {
+        var path = CreatePdfOrWarn(out var acc);
+        if (path == null || acc == null) return;
+        var r = AccountStatementService.SendByEmail(acc, path, AccountStatementService.GetBalance(acc));
+        MessageBox.Show(r.Success ? $"Ekstre {acc.Email} adresine gönderildi." : r.Message,
+            "E-posta", MessageBoxButtons.OK, r.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
     }
 
     private void AddPaymentClick(object? sender, EventArgs e)

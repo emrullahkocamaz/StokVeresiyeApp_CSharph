@@ -46,13 +46,13 @@ echo.
 echo [Ek Adım] WinRAR Arşivi Kontrol Ediliyor...
 set RAR_EXE="C:\Program Files\WinRAR\Rar.exe"
 if exist %RAR_EXE% (
-    %RAR_EXE% a -ep1 "%OUTPUT_DIR%\Bilensis_Setup_v2.8.0.rar" "%OUTPUT_DIR%\Bilensis_Setup_v2.8.0.exe" >nul
-    echo   RAR Arşivi de Hazırlandı: %OUTPUT_DIR%\Bilensis_Setup_v2.8.0.rar
+    %RAR_EXE% a -ep1 "%OUTPUT_DIR%\Bilensis_Setup_v2.9.0.rar" "%OUTPUT_DIR%\Bilensis_Setup_v2.9.0.exe" >nul
+    echo   RAR Arşivi de Hazırlandı: %OUTPUT_DIR%\Bilensis_Setup_v2.9.0.rar
 )
 
 echo.
 echo ========================================================
 echo   KURULUM DOSYASI BAŞARIYLA OLUŞTURULDU!
-echo   Dosya Konumu: %OUTPUT_DIR%\Bilensis_Setup_v2.8.0.exe
+echo   Dosya Konumu: %OUTPUT_DIR%\Bilensis_Setup_v2.9.0.exe
 echo ========================================================
 echo.

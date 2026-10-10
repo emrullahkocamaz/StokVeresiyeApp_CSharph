@@ -132,9 +132,12 @@ public class CloudBackupManageDialog : Form
         var btnOpenFolder = UITheme.CreateButton("📁 Klasörü Aç", UITheme.Secondary, Color.White, (s, e) => OpenBackupFolder(), 130, 36);
         var btnRefreshList = UITheme.CreateButton("🔄 Yenile", UITheme.BorderColor, UITheme.TextPrimary, (s, e) => RefreshBackupsList(), 90, 36);
 
+        var btnVerify = UITheme.CreateButton("🛡️ Doğrula", Color.FromArgb(13, 148, 136), Color.White, (s, e) => VerifySelectedBackup(), 110, 36);
+
         var flowActions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
         flowActions.Controls.Add(btnTakeBackupNow);
         flowActions.Controls.Add(btnRestoreSelected);
+        flowActions.Controls.Add(btnVerify);
         flowActions.Controls.Add(btnOpenFolder);
         flowActions.Controls.Add(btnRefreshList);
         pnlBackupActions.Controls.Add(flowActions);
@@ -178,8 +181,8 @@ public class CloudBackupManageDialog : Form
             ForeColor = Color.FromArgb(30, 64, 175),
             BackColor = Color.FromArgb(239, 246, 255),
             Padding = new Padding(12),
-            Width = 780,
-            Height = 85
+            Width = 740,
+            Height = 125
         };
 
         _txtTargetDir.Width = 560;
@@ -216,7 +219,7 @@ public class CloudBackupManageDialog : Form
             Text = "💡 İpucu: Google hesabınızda '2 Adımlı Doğrulama' açık ise, myaccount.google.com > Güvenlik > Uygulama Şifreleri bölümünden alacağınız 16 haneli şifreyi giriniz.", 
             Font = UITheme.SmallFont, 
             ForeColor = UITheme.TextMuted,
-            Width = 750,
+            Width = 720,
             Margin = new Padding(0, 4, 0, 12) 
         });
 
@@ -252,8 +255,8 @@ public class CloudBackupManageDialog : Form
             ForeColor = Color.FromArgb(30, 64, 175),
             BackColor = Color.FromArgb(239, 246, 255),
             Padding = new Padding(12),
-            Width = 780,
-            Height = 105
+            Width = 740,
+            Height = 130
         };
 
         _txtPdfArchive.Width = 560;
@@ -289,7 +292,7 @@ public class CloudBackupManageDialog : Form
         pnlPdfButtons.Controls.Add(btnOpenPdfFolder);
 
         _lblPdfStatus.AutoSize = false;
-        _lblPdfStatus.Width = 780;
+        _lblPdfStatus.Width = 740;
         _lblPdfStatus.Height = 70;
         _lblPdfStatus.Font = UITheme.SmallFont;
         _lblPdfStatus.ForeColor = UITheme.TextSecondary;
@@ -457,6 +460,7 @@ public class CloudBackupManageDialog : Form
         {
             var result = await Task.Run(() => CloudBackupService.ExecuteBackup(silent: false));
             RefreshBackupsList();
+            MessageBox.Show(result.Message, result.Success ? "Yedekleme Başarılı" : "Yedekleme Doğrulanamadı", MessageBoxButtons.OK, result.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         }
         finally
         {
@@ -503,6 +507,28 @@ public class CloudBackupManageDialog : Form
             {
                 MessageBox.Show(result.Message, "Geri Yükleme Başarısız", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private async void VerifySelectedBackup()
+    {
+        string? fullPath = _gridBackups.CurrentRow?.Cells["Dosya Yolu"]?.Value?.ToString();
+        if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath))
+        {
+            MessageBox.Show("Lütfen doğrulamak istediğiniz yedeği tablodan seçiniz.", "Yedek Seçilmedi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        Cursor = Cursors.WaitCursor;
+        try
+        {
+            var r = await Task.Run(() => CloudBackupService.VerifyExistingBackup(fullPath));
+            MessageBox.Show(r.Ok ? "✅ Yedek arşivi sağlam ve baştan sona okunabiliyor." : $"❌ Yedek bozuk görünüyor:\n{r.Message}",
+                "Yedek Doğrulama", MessageBoxButtons.OK, r.Ok ? MessageBoxIcon.Information : MessageBoxIcon.Error);
         }
         finally
         {

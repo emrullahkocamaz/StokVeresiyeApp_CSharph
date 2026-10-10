@@ -785,6 +785,25 @@ IF @defId IS NOT NULL UPDATE StockMovements SET WarehouseId = @defId WHERE Wareh
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>.bak dosyasının bozuk olup olmadığını SQL Server'a RESTORE VERIFYONLY ile denetletir.</summary>
+    public static (bool Ok, string Message) VerifyBackupFile(string bakFilePath)
+    {
+        try
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "RESTORE VERIFYONLY FROM DISK = @path;";
+            cmd.CommandTimeout = 300;
+            cmd.Parameters.AddWithValue("@path", bakFilePath);
+            cmd.ExecuteNonQuery();
+            return (true, "Yedek dosyası doğrulandı.");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
     public static void RestoreDatabase(string sourceFilePath)
     {
         string masterCs = _config.BuildConnectionString("master");

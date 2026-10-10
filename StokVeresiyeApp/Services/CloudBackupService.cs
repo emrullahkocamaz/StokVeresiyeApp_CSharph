@@ -23,6 +23,8 @@ public class CloudBackupConfig
     public bool BackupOnClosing { get; set; } = true;
     public bool SendToGmail { get; set; } = false;
     public DateTime? LastBackupDate { get; set; }
+    public bool? LastBackupVerified { get; set; }
+    public string LastBackupVerifyMessage { get; set; } = "";
 
     // PDF fatura arşivi (yalnızca PDF'ler; veritabanı yedeğinden ayrıdır)
     public string PdfArchiveDirectory { get; set; } = "";     // asıl arşiv
@@ -196,16 +198,30 @@ public static class CloudBackupService
                 return (false, "Veritabanı .bak dosyası oluşturulamadı.", null);
             }
 
+            // 1) SQL Server .bak dosyasını doğrulasın (bozuk yedek hiç yedek değildir)
+            var sqlVerify = Database.VerifyBackupFile(tempBakPath);
+            long bakLength = new FileInfo(tempBakPath).Length;
+
             // .bak dosyasını yüksek oranda sıkıştırılmış .zip arşivine paketle
             using (var zipArchive = ZipFile.Open(finalZipPath, ZipArchiveMode.Create))
             {
                 zipArchive.CreateEntryFromFile(tempBakPath, tempBakName, CompressionLevel.Optimal);
             }
 
+            // 2) Zip'i baştan okuyarak bütünlüğünü ve boyutunu doğrula
+            var zipVerify = VerifyBackupZip(finalZipPath, bakLength);
+
             // Geçici .bak dosyasını temizle
             try { File.Delete(tempBakPath); } catch { }
 
+            bool verified = sqlVerify.Ok && zipVerify.Ok;
+            string verifyText = verified
+                ? "\n✅ Yedek doğrulandı (SQL kontrolü + arşiv bütünlüğü)."
+                : $"\n❌ YEDEK DOĞRULANAMADI! {(sqlVerify.Ok ? "" : "SQL: " + sqlVerify.Message + " ")}{(zipVerify.Ok ? "" : "Arşiv: " + zipVerify.Message)}";
+
             _config.LastBackupDate = DateTime.Now;
+            _config.LastBackupVerified = verified;
+            _config.LastBackupVerifyMessage = verified ? "Doğrulandı" : (sqlVerify.Ok ? zipVerify.Message : sqlVerify.Message);
             SaveConfig();
 
             string mailStatus = "";
@@ -220,14 +236,45 @@ public static class CloudBackupService
 
             AuditLogService.Log("Sistem", "Bulut Yedekleme", null, "Otomatik Bulut Yedekleme", null, $"Veritabanı yedeği alındı: {finalZipPath}");
 
-            string msg = $"Veritabanı başarıyla yedeklendi!\n\nKonum: {finalZipPath}{mailStatus}";
-            return (true, msg, finalZipPath);
+            string msg = $"Veritabanı yedeklendi.\n\nKonum: {finalZipPath}{verifyText}{mailStatus}";
+            if (silent && !verified)
+                MessageBox.Show(msg, "⚠️ Otomatik Yedek Doğrulanamadı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return (verified, msg, finalZipPath);
         }
         catch (Exception ex)
         {
             return (false, $"Yedekleme sırasında hata oluştu: {ex.Message}", null);
         }
     }
+
+    /// <summary>Zip içindeki .bak girdisini baştan sona okuyup beklenen boyutla karşılaştırır.</summary>
+    public static (bool Ok, string Message) VerifyBackupZip(string zipPath, long expectedLength)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(zipPath);
+            var entry = zip.Entries.FirstOrDefault(e => e.Name.EndsWith(".bak", StringComparison.OrdinalIgnoreCase));
+            if (entry == null) return (false, "Arşivde .bak dosyası yok.");
+
+            long read = 0;
+            var buffer = new byte[1024 * 1024];
+            using var s = entry.Open();
+            int n;
+            while ((n = s.Read(buffer, 0, buffer.Length)) > 0) read += n;
+
+            if (read != entry.Length || (expectedLength > 0 && read != expectedLength))
+                return (false, "Arşiv boyutu beklenenle uyuşmuyor.");
+            return (true, "Arşiv sağlam.");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>Var olan bir yedek zip'inin okunabilirliğini denetler (liste ekranından elle doğrulama).</summary>
+    public static (bool Ok, string Message) VerifyExistingBackup(string zipPath)
+        => VerifyBackupZip(zipPath, 0);
 
     public static void AutoCheckDailyBackup()
     {
@@ -242,6 +289,37 @@ public static class CloudBackupService
             }
         }
         catch { }
+    }
+
+    /// <summary>Yedek için tanımlı Gmail hesabı üzerinden herhangi bir alıcıya ekli e-posta gönderir.</summary>
+    public static (bool Success, string Message) SendMail(string to, string subject, string body, string? attachmentPath = null)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_config.GmailAddress) || string.IsNullOrWhiteSpace(_config.GmailAppPassword))
+                return (false, "Gmail hesabı tanımlı değil (Ayarlar > Bulut Yedekleme).");
+
+            using var message = new MailMessage { From = new MailAddress(_config.GmailAddress, ThermalReceiptService.Config.StoreHeader) };
+            message.To.Add(to.Trim());
+            message.Subject = subject;
+            message.Body = body;
+            if (!string.IsNullOrEmpty(attachmentPath) && File.Exists(attachmentPath))
+                message.Attachments.Add(new Attachment(attachmentPath));
+
+            using var smtp = new SmtpClient("smtp.gmail.com", 587)
+            {
+                EnableSsl = true,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(_config.GmailAddress, _config.GmailAppPassword.Replace(" ", "")),
+                Timeout = 20000
+            };
+            smtp.Send(message);
+            return (true, "Gönderildi.");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
     }
 
     public static (bool Success, string Message) SendBackupToGmail(string zipFilePath)

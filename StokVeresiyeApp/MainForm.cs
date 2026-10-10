@@ -176,9 +176,8 @@ public class MainForm : Form
             }
             else if (e.Control && e.KeyCode == Keys.K)
             {
-                _txtGlobalSearch.Focus();
-                _txtGlobalSearch.SelectAll();
-                e.Handled = true;
+                OpenCommandPalette();
+                e.Handled = e.SuppressKeyPress = true;
             }
             else if (e.KeyCode == Keys.Escape && _pnlGlobalResults.Visible)
             {
@@ -217,6 +216,11 @@ public class MainForm : Form
             else if (e.KeyCode == Keys.F7)
             {
                 OpenInvoiceEntry(); // F7: E-Fatura / Alış Faturası Girişi
+                e.Handled = true;
+            }
+            else if (e.KeyCode == Keys.F8)
+            {
+                OpenSaleReturn(); // F8: Satış İadesi & Değişim
                 e.Handled = true;
             }
             else if (e.KeyCode == Keys.F10)
@@ -389,7 +393,7 @@ public class MainForm : Form
         _lblSidebarBrand.Margin = new Padding(0, 0, 6, 0);
         _lblSidebarBrand.Click += (s, e) => ShowPage(0);
 
-        _lblSidebarBadge.Text = "v2.8";
+        _lblSidebarBadge.Text = "v2.9";
         _lblSidebarBadge.Font = new Font("Segoe UI", 7.5f, FontStyle.Bold);
         _lblSidebarBadge.ForeColor = Color.White;
         _lblSidebarBadge.BackColor = UITheme.Primary;
@@ -503,7 +507,7 @@ public class MainForm : Form
         _btnNavWhatsApp = CreateNavBtn("💬", "WhatsApp & Mobil", () => OpenWhatsAppAssistantDialog());
         _btnNavAudit = CreateNavBtn("🕒", "İşlem Logları", () => ShowPage(5));
         _btnNavUsers = CreateNavBtn("👤", "Kullanıcı & Yetki", () => ShowPage(6));
-        _btnNavSettings = CreateNavBtn("⚙️", "Ayarlar & Yedek", () => ShowPage(8));
+        _btnNavSettings = CreateNavBtn("⚙️", "Ayarlar & Yedek", () => OpenSettings(0));
         _btnNavLicense = CreateNavBtn("🔑", "Lisans", () => ShowPage(7));
 
         _pnlNavButtons.Controls.Add(new SidebarSectionTitle { Text = "Genel" });
@@ -816,10 +820,9 @@ public class MainForm : Form
             foreach (DataRow r in dtProds.Rows)
             {
                 if (prodCount++ >= 4) break;
-                string name = r["Name"]?.ToString() ?? "";
-                string barcode = r["Barcode"]?.ToString() ?? "";
-                decimal stock = Convert.ToDecimal(r["StockQuantity"] ?? 0);
-                decimal price = Convert.ToDecimal(r["SalePrice"] ?? 0);
+                string name = r["Ürün Adı"]?.ToString() ?? "";
+                decimal stock = Convert.ToDecimal(r["Kalan Stok"] ?? 0);
+                decimal price = Convert.ToDecimal(r["Satış Fiyatı"] ?? 0);
                 _lstGlobalResults.Items.Add($"📦 ÜRÜN: {name} | Stok: {stock} | Fiyat: {price:N2} ₺");
             }
 
@@ -829,8 +832,8 @@ public class MainForm : Form
             foreach (DataRow r in dtAccs.Rows)
             {
                 if (accCount++ >= 4) break;
-                string title = r["Title"]?.ToString() ?? "";
-                decimal balance = Convert.ToDecimal(r["Balance"] ?? 0);
+                string title = r["Cari Adı"]?.ToString() ?? "";
+                decimal balance = Convert.ToDecimal(r["Bakiye (₺)"] ?? 0);
                 _lstGlobalResults.Items.Add($"👥 CARİ: {title} | Bakiye: {balance:N2} ₺");
             }
 
@@ -879,6 +882,65 @@ public class MainForm : Form
             _txtAccountSearch.Focus();
             _txtAccountSearch.SelectAll();
         }
+    }
+
+    private void OpenCommandPalette()
+    {
+        // Menüdeki tüm komutlar (aynı komut birden çok sekmede olsa da tek sefer)
+        var seen = new HashSet<string>();
+        var commands = new List<PaletteItem>();
+        foreach (var tab in _ribbon.RibbonTabs)
+        foreach (var group in tab.Groups)
+        foreach (var btn in group.Items.SelectMany(t => t.Items).Where(b => b.Visible && b.Enabled))
+        {
+            if (!seen.Add(btn.TextLine1)) continue;
+            string text = btn.TextLine1.Trim();
+            string icon = "▸";
+            int sp = text.IndexOf(' ');
+            if (sp > 0 && !char.IsLetterOrDigit(text[0])) { icon = text[..sp]; text = text[(sp + 1)..].Trim(); }
+            var captured = btn;
+            commands.Add(new PaletteItem
+            {
+                Icon = icon,
+                Title = text,
+                Subtitle = string.IsNullOrWhiteSpace(btn.TextLine2) ? tab.Text : $"{btn.TextLine2}  ·  {tab.Text}",
+                Run = () => captured.Invoke()
+            });
+        }
+
+        IEnumerable<PaletteItem> DataSearch(string q)
+        {
+            foreach (DataRow r in ProductService.GetAllProducts(q).Rows.Cast<DataRow>().Take(5))
+            {
+                string name = r["Ürün Adı"]?.ToString() ?? "";
+                decimal stock = Convert.ToDecimal(r["Kalan Stok"] ?? 0);
+                decimal price = Convert.ToDecimal(r["Satış Fiyatı"] ?? 0);
+                yield return new PaletteItem
+                {
+                    Icon = "📦",
+                    Title = name,
+                    Subtitle = $"Ürün  ·  Stok: {stock}  ·  Fiyat: {price:N2} ₺",
+                    Run = () => { ShowPage(1); _txtProductSearch.Text = name; _txtProductSearch.Focus(); _txtProductSearch.SelectAll(); }
+                };
+            }
+            foreach (DataRow r in AccountService.GetAllAccounts(q).Rows.Cast<DataRow>().Take(5))
+            {
+                string title = r["Cari Adı"]?.ToString() ?? "";
+                decimal balance = Convert.ToDecimal(r["Bakiye (₺)"] ?? 0);
+                yield return new PaletteItem
+                {
+                    Icon = "👥",
+                    Title = title,
+                    Subtitle = $"Cari  ·  Bakiye: {balance:N2} ₺",
+                    Run = () => { ShowPage(2); _txtAccountSearch.Text = title; _txtAccountSearch.Focus(); _txtAccountSearch.SelectAll(); }
+                };
+            }
+        }
+
+        using var dlg = new CommandPaletteDialog(commands, DataSearch);
+        dlg.PositionOver(this);
+        // Komut, palet kapandıktan sonra çalışır (iç içe modal pencere oluşmasın)
+        if (dlg.ShowDialog(this) == DialogResult.OK) dlg.Selected?.Run?.Invoke();
     }
 
     private void RefreshCurrentPage()
@@ -1139,10 +1201,22 @@ public class MainForm : Form
             dlg.ShowDialog(this);
         };
 
+        var btnReturn = new CmdButton
+        {
+            TextLine1 = "↩️ Satış İadesi & Değişim",
+            TextLine2 = "(F8 Kısayol)",
+            ImageLarge = RibbonIconFactory.CreateIcon("quickbuy", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("quickbuy", 16)
+        };
+        btnReturn.Click += (s, e) => OpenSaleReturn();
+
         tripSale.Items.Add(btnSale);
         tripSale.Items.Add(btnBuy);
         tripSale.Items.Add(btnParked);
         grpSale.Items.Add(tripSale);
+        var tripSale2 = new CmdTriple();
+        tripSale2.Items.Add(btnReturn);
+        grpSale.Items.Add(tripSale2);
         tabSales.Groups.Add(grpSale);
 
         var grpCash = new CmdGroup { TextLine1 = "Tahsilat & Kasa" };
@@ -1441,10 +1515,22 @@ public class MainForm : Form
         };
         btnStmt.Click += (s, e) => { ShowPage(2); ViewAccountStatement(); };
 
+        var btnBulkStmt = new CmdButton
+        {
+            TextLine1 = "📨 Toplu Ekstre Gönder",
+            TextLine2 = "WhatsApp / E-posta PDF",
+            ImageLarge = RibbonIconFactory.CreateIcon("statement", 32),
+            ImageSmall = RibbonIconFactory.CreateIcon("statement", 16)
+        };
+        btnBulkStmt.Click += (s, e) => { using var dlg = new BulkStatementDialog(); dlg.ShowDialog(this); };
+
         tripAcc.Items.Add(btnAccList);
         tripAcc.Items.Add(btnNewAcc);
         tripAcc.Items.Add(btnStmt);
         grpAcc.Items.Add(tripAcc);
+        var tripAcc2 = new CmdTriple();
+        tripAcc2.Items.Add(btnBulkStmt);
+        grpAcc.Items.Add(tripAcc2);
         tabAccounts.Groups.Add(grpAcc);
 
         var grpAccActions = new CmdGroup { TextLine1 = "Borç & Tahsilat" };
@@ -1796,7 +1882,7 @@ public class MainForm : Form
             ImageLarge = RibbonIconFactory.CreateIcon("settings", 32),
             ImageSmall = RibbonIconFactory.CreateIcon("settings", 16)
         };
-        btnSettings.Click += (s, e) => ShowPage(8);
+        btnSettings.Click += (s, e) => OpenSettings(0);
 
         var btnLicense = new CmdButton 
         { 
@@ -1814,7 +1900,7 @@ public class MainForm : Form
             ImageLarge = RibbonIconFactory.CreateIcon("theme", 32),
             ImageSmall = RibbonIconFactory.CreateIcon("theme", 16)
         };
-        btnTheme.Click += (s, e) => ShowPage(8);
+        btnTheme.Click += (s, e) => OpenSettings(4);
 
         tripConfig.Items.Add(btnSettings);
         tripConfig.Items.Add(btnLicense);
@@ -3333,7 +3419,7 @@ public class MainForm : Form
         };
 
         // 1. Veritabanı Yönetim Kartı
-        var dbCard = new CardPanel { Width = 840, Height = 220, Margin = new Padding(0, 0, 0, 20) };
+        var dbCard = new CardPanel { Width = 840, Height = 280, Margin = new Padding(0, 0, 0, 20) };
         var lblDbTitle = new Label { Text = "🗄️ SQL Server Veritabanı Yapılandırması & Yerel Yedekleme", Font = UITheme.TitleFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 30 };
         var lblDbDesc = new Label
         {
@@ -3344,7 +3430,7 @@ public class MainForm : Form
             Height = 85
         };
 
-        var dbButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 45 };
+        var dbButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 100, WrapContents = true };
         var btnConfigSql = UITheme.CreateButton("⚙️ SQL Sunucu Ayarları", UITheme.Primary, Color.White, (s, e) =>
         {
             using var dlg = new DatabaseConfigDialog();
@@ -3396,7 +3482,7 @@ public class MainForm : Form
         flow.Controls.Add(dbCard);
 
         // 2. Google Drive & Gmail Bulut Yedekleme & Geri Yükleme Kartı
-        var cloudCard = new CardPanel { Width = 840, Height = 210, Margin = new Padding(0, 0, 0, 20) };
+        var cloudCard = new CardPanel { Width = 840, Height = 230, Margin = new Padding(0, 0, 0, 20) };
         var lblCloudTitle = new Label { Text = "☁️ Google Drive & Gmail Bulut Yedekleme & Geri Yükleme", Font = UITheme.TitleFont, ForeColor = Color.FromArgb(2, 132, 199), Dock = DockStyle.Top, Height = 30 };
         var lblCloudDesc = new Label
         {
@@ -3404,7 +3490,7 @@ public class MainForm : Form
             Font = UITheme.RegularFont,
             ForeColor = UITheme.TextSecondary,
             Dock = DockStyle.Top,
-            Height = 80
+            Height = 100
         };
 
         var cloudButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 45 };
@@ -3415,7 +3501,8 @@ public class MainForm : Form
         }, 290, 36);
         var btnTriggerCloud = UITheme.CreateButton("⚡ Şimdi Buluta Yedek Al", UITheme.Success, Color.White, (s, e) =>
         {
-            CloudBackupService.ExecuteBackup(silent: false);
+            var res = CloudBackupService.ExecuteBackup(silent: false);
+            MessageBox.Show(res.Message, res.Success ? "Yedekleme Başarılı" : "Yedekleme Doğrulanamadı", MessageBoxButtons.OK, res.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         }, 190, 36);
 
         cloudButtons.Controls.Add(btnOpenCloudManage);
@@ -3519,9 +3606,102 @@ public class MainForm : Form
         themeCard.Controls.Add(lblThemeTitle);
         flow.Controls.Add(themeCard);
 
+        // 8. Kullanıcılar & Lisans kısayol kartları (tek ayar penceresinde toplanması için)
+        CardPanel MakeShortcutCard(string title, string desc, string btnText, Color btnColor, Action action)
+        {
+            var card = new CardPanel { Width = 840, Height = 170, Margin = new Padding(0, 0, 0, 20) };
+            var lt = new Label { Text = title, Font = UITheme.TitleFont, ForeColor = UITheme.TextPrimary, Dock = DockStyle.Top, Height = 30 };
+            var ld = new Label { Text = desc, Font = UITheme.RegularFont, ForeColor = UITheme.TextSecondary, Dock = DockStyle.Top, Height = 50 };
+            var fb = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 45 };
+            fb.Controls.Add(UITheme.CreateButton(btnText, btnColor, Color.White, (s, e) => action(), 260, 36));
+            card.Controls.Add(fb);
+            card.Controls.Add(ld);
+            card.Controls.Add(lt);
+            return card;
+        }
+        var userCard = MakeShortcutCard("👤 Kullanıcılar, Roller & Yetkiler",
+            "Personel hesaplarını, rollerini, depo yetkilerini ve şifre politikalarını yönetin.",
+            "👤 Kullanıcı Yönetimini Aç", UITheme.Primary, () => ShowPage(6));
+        var licCard = MakeShortcutCard("🔑 Lisans & Aktivasyon",
+            "Lisans durumunu, kalan süreyi görüntüleyin; yeni lisans aktifleştirin.",
+            "🔑 Lisans Sayfasını Aç", UITheme.Success, () => ShowPage(7));
+        flow.Controls.Add(userCard);
+        flow.Controls.Add(licCard);
+
+        // Sol kategori menüsü + sağda yalnızca seçili kategorinin kartı
+        _settingsCategories.Clear();
+        _settingsCategories.Add(("🗄️  Veritabanı & Yerel Yedek", dbCard));
+        _settingsCategories.Add(("☁️  Bulut Yedekleme", cloudCard));
+        _settingsCategories.Add(("📥  Veri Aktarımı (Excel)", excelCard));
+        _settingsCategories.Add(("💬  WhatsApp & Mobil", waCard));
+        _settingsCategories.Add(("🎨  Görünüm", themeCard));
+        _settingsCategories.Add(("👤  Kullanıcılar", userCard));
+        _settingsCategories.Add(("📜  Denetim Kayıtları", logCard));
+        _settingsCategories.Add(("🔑  Lisans", licCard));
+
+        var nav = new Panel { Dock = DockStyle.Left, Width = 230, Padding = new Padding(0, 10, 10, 0), BackColor = Color.Transparent };
+        var navFlow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoScroll = true
+        };
+        _settingsNavButtons.Clear();
+        for (int i = 0; i < _settingsCategories.Count; i++)
+        {
+            int idx = i;
+            var b = new Button
+            {
+                Text = _settingsCategories[i].Title,
+                Width = 208,
+                Height = 42,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(10, 0, 0, 0),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 10f, FontStyle.Regular),
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 0, 0, 4)
+            };
+            b.FlatAppearance.BorderSize = 0;
+            b.Click += (s, e) => ShowSettingsCategory(idx);
+            _settingsNavButtons.Add(b);
+            navFlow.Controls.Add(b);
+        }
+        nav.Controls.Add(navFlow);
+
+        _pnlSettings.AutoScroll = false;
         _pnlSettings.Controls.Add(flow);
+        _pnlSettings.Controls.Add(nav);
         _pnlSettings.Controls.Add(header);
         header.SendToBack();
+        nav.BringToFront();
+        flow.BringToFront();
+
+        ShowSettingsCategory(0);
+    }
+
+    private readonly List<(string Title, Control Card)> _settingsCategories = new();
+    private readonly List<Button> _settingsNavButtons = new();
+
+    /// <summary>Ayarlar sayfasında verilen kategoriyi (0=Veritabanı ... 4=Görünüm) gösterir.</summary>
+    private void ShowSettingsCategory(int index)
+    {
+        if (index < 0 || index >= _settingsCategories.Count) return;
+        for (int i = 0; i < _settingsCategories.Count; i++)
+        {
+            _settingsCategories[i].Card.Visible = i == index;
+            var b = _settingsNavButtons[i];
+            b.BackColor = i == index ? UITheme.PrimaryLight : UITheme.CardBg;
+            b.ForeColor = i == index ? UITheme.Primary : UITheme.TextPrimary;
+            b.Font = new Font("Segoe UI", 10f, i == index ? FontStyle.Bold : FontStyle.Regular);
+        }
+    }
+
+    private void OpenSettings(int category)
+    {
+        ShowPage(8);
+        ShowSettingsCategory(category);
     }
     #endregion
 
@@ -3931,7 +4111,7 @@ public class MainForm : Form
         // KART 2: SADECE Süper Kullanıcı (super) için Lisans Üretim Merkezi Kartı (Admin göremez!)
         if (UserService.CurrentUser?.IsSuperUser == true)
         {
-            var cardGen = new CardPanel { Width = 900, Height = 145, Padding = new Padding(20), Margin = new Padding(0, 15, 0, 0) };
+            var cardGen = new CardPanel { Width = 900, Height = 170, Padding = new Padding(20), Margin = new Padding(0, 15, 0, 0) };
             var lblGenTitle = new Label 
             { 
                 Text = "👑 SÜPER KULLANICI LİSANS ÜRETİM MERKEZİ (KEYGEN)", 
@@ -3946,7 +4126,7 @@ public class MainForm : Form
                 Font = UITheme.RegularFont, 
                 ForeColor = UITheme.TextSecondary, 
                 Dock = DockStyle.Top, 
-                Height = 36 
+                Height = 58
             };
 
             var btnOpenGen = UITheme.CreateButton("🔑 Lisans Anahtarı Üreticisini Aç (Keygen)", Color.FromArgb(124, 58, 237), Color.White, (s, e) =>
@@ -4546,6 +4726,13 @@ public class MainForm : Form
     {
         if (grid.SelectedRows.Count == 0) return -1;
         return Convert.ToInt64(grid.SelectedRows[0].Cells[0].Value);
+    }
+
+    private void OpenSaleReturn()
+    {
+        if (!Require(UserPermissions.QuickBuy, "Satış iadesi ve değişim")) return;
+        using var dlg = new SaleReturnDialog();
+        if (dlg.ShowDialog(this) == DialogResult.OK) RefreshAll();
     }
 
     private void OpenQuickSale(string operation = "Satış", long? productId = null)
@@ -5366,7 +5553,11 @@ WHERE m.Id = $id", ("$id", id));
             try
             {
                 Database.BackupDatabase(sfd.FileName);
-                MessageBox.Show("SQL Server veritabanı yedeği (.bak) başarıyla alındı!", "Yedekleme Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                var ver = Database.VerifyBackupFile(sfd.FileName);
+                if (ver.Ok)
+                    MessageBox.Show("SQL Server veritabanı yedeği (.bak) alındı ve doğrulandı ✅", "Yedekleme Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                else
+                    MessageBox.Show($"Yedek alındı ancak doğrulanamadı ❌\n\n{ver.Message}", "Yedek Doğrulanamadı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             catch (Exception ex)
             {

@@ -45,6 +45,8 @@ public class BatchInvoiceItemModel
     public string? MatchedAccountName { get; set; }
 
     public int ItemCount { get; set; }
+    /// <summary>Faturadaki tüm kalemlerin miktar toplamı (kalem sayısı değil, giren ürün adedi).</summary>
+    public double TotalQuantity { get; set; }
     public double SubTotal { get; set; }
     public double VatTotal { get; set; }
     public double GrandTotal { get; set; }

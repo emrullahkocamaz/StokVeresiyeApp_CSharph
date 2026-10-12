@@ -18,6 +18,7 @@ public class InvoiceEntryDialog : Form
     private readonly DataGridView _gridItems = new();
     private readonly Label _lblSubTotal = new() { Text = "0,00 ₺", Font = UITheme.TitleFont, AutoSize = true };
     private readonly Label _lblVatTotal = new() { Text = "0,00 ₺", Font = UITheme.TitleFont, AutoSize = true };
+    private readonly Label _lblTotalQty = new() { Text = "0 kalem / 0", Font = UITheme.TitleFont, AutoSize = true };
     private readonly Label _lblGrandTotal = new() { Text = "0,00 ₺", Font = new Font("Segoe UI", 13f, FontStyle.Bold), ForeColor = UITheme.Primary, AutoSize = true };
 
     private readonly CheckBox _chkUpdateStock = new() { Text = "Ürünleri seçilen depoya otomatik stok girişi yap (Alış Hareketi)", Checked = true, AutoSize = true };
@@ -223,6 +224,7 @@ public class InvoiceEntryDialog : Form
             Margin = new Padding(0)
         };
 
+        var cardQty = CreateMetricBox("Kalem / Toplam Miktar", _lblTotalQty, Color.FromArgb(234, 88, 12), 170);
         var cardMatrah = CreateMetricBox("Matrah (KDV Hariç)", _lblSubTotal, Color.FromArgb(71, 85, 105), 150);
         var cardVat = CreateMetricBox("KDV Toplamı", _lblVatTotal, Color.FromArgb(99, 102, 241), 140);
         var cardGrand = CreateMetricBox("GENEL TOPLAM", _lblGrandTotal, Color.FromArgb(16, 185, 129), 180, isHighlight: true);
@@ -231,6 +233,7 @@ public class InvoiceEntryDialog : Form
         btnSave.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold);
         btnSave.Margin = new Padding(12, 6, 0, 0);
 
+        flowTotals.Controls.Add(cardQty);
         flowTotals.Controls.Add(cardMatrah);
         flowTotals.Controls.Add(cardVat);
         flowTotals.Controls.Add(cardGrand);
@@ -879,7 +882,7 @@ public class InvoiceEntryDialog : Form
             FormatGridColumns();
 
             string countMsg = _parsedResult.Items.Count > 0 
-                ? $"{_parsedResult.Items.Count} adet kalem başarıyla aktarıldı." 
+                ? $"{_parsedResult.Items.Count} kalem, toplam {_parsedResult.Items.Sum(i => i.Quantity):#,0.##} miktar başarıyla aktarıldı."
                 : "Fatura tutarları aktarıldı. 'Manuel Kalem Ekle' butonuyla ürünleri girebilirsiniz.";
 
             MessageBox.Show(
@@ -933,6 +936,7 @@ public class InvoiceEntryDialog : Form
         }
     }
 
+    /// <summary>Faturadaki satıcıyı sistemde bulup seçer; bulunamazsa cari oluşturma seçeneklerini sunar.</summary>
     private void AutoMatchAccount(string? taxNumber, string? name)
     {
         try
@@ -943,58 +947,93 @@ public class InvoiceEntryDialog : Form
                 if (name.Length > 120) name = name.Substring(0, 120);
             }
 
-            var matched = InvoiceService.FindAccountByTaxOrName(taxNumber, name);
-            if (matched != null)
+            long? matchedId = InvoiceService.FindSupplierAccountId(taxNumber, name);
+            if (matchedId.HasValue)
             {
-                for (int i = 0; i < _cmbAccount.Items.Count; i++)
-                {
-                    if (_cmbAccount.Items[i] is ComboBoxItem item && item.Id == matched.Id)
-                    {
-                        _cmbAccount.SelectedIndex = i;
-                        return;
-                    }
-                }
+                LoadCombos(); // pasif cari yeniden aktif edilmiş olabilir
+                SelectAccount(matchedId.Value);
+                return;
             }
-            else if (!string.IsNullOrWhiteSpace(name) && name.Length >= 4 && !name.Contains("Toplam") && !name.Contains("Matrah") && !name.Contains("KDV"))
-            {
-                var res = MessageBox.Show(
-                    $"Faturadaki satıcı firma '{name}' sistemde bulunamadı.\n\n" +
-                    "Bu firmayı sisteminize yeni bir Tedarikçi Cari olarak otomatik eklemek ister misiniz?",
-                    "Yeni Cari Oluşturulsun mu?",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question
-                );
 
-                if (res == DialogResult.Yes)
-                {
-                    Database.Execute(@"
-INSERT INTO Accounts (Name, Type, Phone, TaxOffice, TaxNumber, Address, PriceGroup, DefaultDiscountPercent, BalanceLimit, IsActive)
-VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
-                        ("@n", name),
-                        ("@to", (object?)_parsedResult?.SupplierTaxOffice ?? DBNull.Value),
-                        ("@tax", (object?)taxNumber ?? DBNull.Value),
-                        ("@addr", (object?)_parsedResult?.SupplierAddress ?? DBNull.Value)
-                    );
-
-                    LoadCombos();
-                    AutoMatchAccount(taxNumber, name);
-                }
-            }
+            _cmbAccount.SelectedIndex = -1;
+            if (IsUsableSupplierName(name) || !string.IsNullOrWhiteSpace(taxNumber))
+                AskCreateMissingAccount();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Tedarikçi cari eşleştirilirken hata oluştu: " + ex.Message, "Cari Eşleştirme", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
-    private void QuickCreateAccount()
+    private static bool IsUsableSupplierName(string? name) =>
+        !string.IsNullOrWhiteSpace(name) && name.Trim().Length >= 4 &&
+        !name.Contains("Toplam") && !name.Contains("Matrah") && !name.Contains("KDV");
+
+    private void SelectAccount(long accountId)
     {
-        using var accForm = new AccountForm();
-        if (accForm.ShowDialog() == DialogResult.OK)
+        for (int i = 0; i < _cmbAccount.Items.Count; i++)
         {
-            LoadCombos();
-            if (!string.IsNullOrWhiteSpace(_parsedResult?.SupplierName))
+            if (_cmbAccount.Items[i] is ComboBoxItem item && item.Id == accountId)
             {
-                AutoMatchAccount(_parsedResult.SupplierTaxNumber, _parsedResult.SupplierName);
+                _cmbAccount.SelectedIndex = i;
+                return;
             }
         }
+    }
+
+    /// <summary>
+    /// Fatura carisi sistemde yoksa: [Evet] faturadaki bilgilerle otomatik oluştur, [Hayır] Yeni Cari formunu aç (elle),
+    /// [İptal] şimdilik vazgeç. Cari seçili hale geldiyse true döner.
+    /// </summary>
+    private bool AskCreateMissingAccount()
+    {
+        string? name = _parsedResult?.SupplierName?.Trim();
+        string? taxNo = _parsedResult?.SupplierTaxNumber?.Trim();
+        bool canAuto = IsUsableSupplierName(name);
+
+        string info = canAuto
+            ? $"Faturadaki satıcı firma sistemde kayıtlı değil:\n\n• Unvan: {name}\n• VKN/TCKN: {(string.IsNullOrWhiteSpace(taxNo) ? "-" : taxNo)}\n\n"
+            : "Bu fatura için seçili bir tedarikçi cari yok.\n\n";
+
+        var res = MessageBox.Show(
+            info +
+            "Carisi olmayan fatura kaydedilemez. Ne yapmak istersiniz?\n\n" +
+            (canAuto ? "• [Evet] : Faturadaki bilgilerle cariyi OTOMATİK oluştur.\n" : "") +
+            "• [Hayır] : Yeni Cari formunu açıp cariyi ELLE oluştur.\n" +
+            "• [İptal] : Şimdilik vazgeç (listeden mevcut bir cari seçebilirsiniz).",
+            "Tedarikçi Cari Bulunamadı",
+            canAuto ? MessageBoxButtons.YesNoCancel : MessageBoxButtons.OKCancel,
+            MessageBoxIcon.Warning);
+
+        if (res == DialogResult.Cancel) return false;
+
+        if (canAuto && res == DialogResult.Yes)
+        {
+            long newId = InvoiceService.CreateSupplierAccount(name!, taxNo, _parsedResult?.SupplierTaxOffice, _parsedResult?.SupplierAddress);
+            LoadCombos();
+            SelectAccount(newId);
+            return _cmbAccount.SelectedItem is ComboBoxItem;
+        }
+
+        // [Hayır] (veya otomatik oluşturulamıyorsa [Tamam]): elle oluştur
+        return QuickCreateAccount();
+    }
+
+    private bool QuickCreateAccount()
+    {
+        using var accForm = new AccountForm();
+        accForm.PrefillSupplier(_parsedResult?.SupplierName, _parsedResult?.SupplierTaxOffice, _parsedResult?.SupplierTaxNumber, _parsedResult?.SupplierAddress);
+        if (accForm.ShowDialog() != DialogResult.OK) return false;
+
+        LoadCombos();
+        if (accForm.SavedAccountId > 0)
+            SelectAccount(accForm.SavedAccountId);
+        else if (!string.IsNullOrWhiteSpace(_parsedResult?.SupplierName))
+        {
+            long? id = InvoiceService.FindSupplierAccountId(_parsedResult.SupplierTaxNumber, _parsedResult.SupplierName);
+            if (id.HasValue) SelectAccount(id.Value);
+        }
+        return _cmbAccount.SelectedItem is ComboBoxItem;
     }
 
     private void QuickCreateWarehouse()
@@ -1091,6 +1130,8 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
     {
         double subTotal = 0;
         double vatTotal = 0;
+        int lineCount = 0;
+        double totalQty = 0;
 
         foreach (DataRow row in _itemsTable.Rows)
         {
@@ -1104,6 +1145,8 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
             }
 
             double qty = Convert.ToDouble(row["Quantity"] == DBNull.Value ? 0 : row["Quantity"]);
+            lineCount++;
+            totalQty += qty;
             double price = Convert.ToDouble(row["UnitPrice"] == DBNull.Value ? 0 : row["UnitPrice"]);
             double discPercent = Convert.ToDouble(row["DiscountPercent"] == DBNull.Value ? 0 : row["DiscountPercent"]);
             double vatPercent = Convert.ToDouble(row["VatPercent"] == DBNull.Value ? 20 : row["VatPercent"]);
@@ -1136,6 +1179,7 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
         _lblSubTotal.Text = subTotal.ToString("N2") + " ₺";
         _lblVatTotal.Text = vatTotal.ToString("N2") + " ₺";
         _lblGrandTotal.Text = grandTotal.ToString("N2") + " ₺";
+        _lblTotalQty.Text = $"{lineCount} kalem / {totalQty:#,0.##}";
 
         // Tutar Sağlama Uyarısı (Fatura genel toplamı ile kalemlerin toplamı uyuşmazsa)
         if (_parsedResult != null && _parsedResult.GrandTotal > 0 && Math.Abs(_parsedResult.GrandTotal - grandTotal) > 1.0 && _itemsTable.Rows.Count > 0)
@@ -1170,6 +1214,11 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
             return;
         }
 
+        // Carisiz fatura kaydedilmez: cari seçili değilse otomatik / elle oluşturma seçeneği sunulur
+        if (_cmbAccount.SelectedItem is not ComboBoxItem && !AskCreateMissingAccount())
+        {
+            return;
+        }
         if (_cmbAccount.SelectedItem is not ComboBoxItem accItem)
         {
             MessageBox.Show("Lütfen faturanın ait olduğu tedarikçi cariyi seçiniz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -1340,6 +1389,7 @@ VALUES (@n, 'Tedarikçi', '', @to, @tax, @addr, 'Perakende', 0, 0, 1);",
                 $"Tedarikçi: {invoice.AccountName}\n" +
                 $"Hedef Depo: {invoice.WarehouseName}\n" +
                 $"Kalem Sayısı: {invoice.Items.Count}\n" +
+                $"Toplam Miktar: {invoice.Items.Sum(i => i.Quantity):#,0.##}\n" +
                 $"Genel Toplam: {invoice.GrandTotal:N2} ₺\n\n" +
                 (_chkUpdateStock.Checked ? "✅ Ürünler hedef depoya stok girişi yapıldı.\n" : "") +
                 (_chkUpdateStock.Checked ? "✅ Sistemde olmayan ürünler için otomatik stok kartı ve barkod oluşturuldu.\n" : "") +

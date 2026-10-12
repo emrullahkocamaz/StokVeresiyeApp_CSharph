@@ -125,6 +125,13 @@ public static class PdfArchiveService
         return Convert.ToHexString(SHA256.HashData(fs));
     }
 
+    /// <summary>Kalıcı silmede: yalnızca programın kendi arşiv klasöründeki PDF silinir (kullanıcının orijinal dosyasına dokunulmaz).</summary>
+    public static bool DeleteArchivedPdf(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !IsUnderArchive(path) || !File.Exists(path)) return false;
+        try { File.Delete(path); return true; } catch { return false; }
+    }
+
     private static bool IsUnderArchive(string path)
     {
         try

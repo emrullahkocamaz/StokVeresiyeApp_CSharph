@@ -278,6 +278,50 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Invoices_Number')
         }
     }
 
+    /// <summary>
+    /// Eski sürümlerde N'siz 'Alış', 'Kredi Kartı' gibi sabitler Latin1 veritabanına 'Alis', 'Kredi Karti' olarak yazıldı.
+    /// Bu kayıtlar bakiye/kasa/stok sorgularında sayılmıyordu; doğru yazıma çevrilir. Her açılışta çalışır, tekrarı zararsızdır.
+    /// </summary>
+    private static void RepairLatin1MangledTexts(SqlConnection c)
+    {
+        var fixes = new (string Table, string Column, string Wrong, string Right)[]
+        {
+            ("AccountMovements", "TransactionType", "Alis", "Alış"),
+            ("AccountMovements", "TransactionType", "Satis", "Satış"),
+            ("AccountMovements", "Method", "Kredi Karti", "Kredi Kartı"),
+            ("AccountMovements", "Method", "Parçali Ödeme", "Parçalı Ödeme"),
+            ("AccountMovements", "Method", "Açilis Bakiyesi", "Açılış Bakiyesi"),
+            ("AccountMovements", "CashBank", "Banka Hesabi", "Banka Hesabı"),
+            ("AccountMovements", "CashBank", "Fatura Cari Kaydi", "Fatura Cari Kaydı"),
+            ("StockMovements", "MovementType", "Satilan", "Satılan"),
+            ("StockMovements", "MovementType", "Satis", "Satış"),
+            ("StockMovements", "MovementType", "Çikis", "Çıkış"),
+            ("StockMovements", "MovementType", "Iade Giris", "İade Giriş"),
+            ("StockMovements", "MovementType", "Transfer Giris", "Transfer Giriş"),
+            ("StockMovements", "MovementType", "Transfer Çikis", "Transfer Çıkış"),
+            ("Accounts", "Type", "Müsteri", "Müşteri"),
+            ("Users", "Role", "Kullanici", "Kullanıcı"),
+            ("Invoices", "InvoiceType", "Alis Faturasi", "Alış Faturası"),
+        };
+
+        foreach (var f in fixes)
+        {
+            try
+            {
+                using var cmd = c.CreateCommand();
+                // Latin1_General_BIN: 'Alis' ile 'Alış' ayrı tutulsun, yalnızca bozuk yazım güncellensin
+                cmd.CommandText = $"UPDATE dbo.[{f.Table}] SET [{f.Column}] = @right WHERE [{f.Column}] COLLATE Latin1_General_BIN = @wrong;";
+                cmd.Parameters.AddWithValue("@right", f.Right);
+                cmd.Parameters.AddWithValue("@wrong", f.Wrong);
+                cmd.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"RepairLatin1MangledTexts {f.Table}.{f.Column} error: " + ex.Message);
+            }
+        }
+    }
+
     public static void EnsureSchema()
     {
         try
@@ -382,7 +426,7 @@ CREATE TABLE Users (
     Username NVARCHAR(100) NOT NULL UNIQUE,
     PasswordHash NVARCHAR(255) NOT NULL,
     FullName NVARCHAR(200) NOT NULL,
-    Role NVARCHAR(50) NOT NULL DEFAULT 'Kullanıcı',
+    Role NVARCHAR(50) NOT NULL DEFAULT N'Kullanıcı',
     Permissions NVARCHAR(MAX) NOT NULL DEFAULT '',
     IsActive BIT NOT NULL DEFAULT 1,
     CreatedAt NVARCHAR(50) NOT NULL
@@ -404,7 +448,7 @@ CREATE TABLE Invoices (
     Id BIGINT IDENTITY(1,1) PRIMARY KEY,
     InvoiceNumber NVARCHAR(100) NOT NULL,
     InvoiceDate NVARCHAR(50) NOT NULL,
-    InvoiceType NVARCHAR(50) NOT NULL DEFAULT 'Alış Faturası',
+    InvoiceType NVARCHAR(50) NOT NULL DEFAULT N'Alış Faturası',
     AccountId BIGINT NOT NULL,
     WarehouseId BIGINT NOT NULL,
     SubTotal FLOAT NOT NULL DEFAULT 0,
@@ -657,6 +701,7 @@ IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_AuditLogs_Date')
 
             EnsureDecimalColumns(c);
             EnsureStockViewAndIndexes(c);
+            RepairLatin1MangledTexts(c);
         }
         catch (Exception ex)
         {
@@ -722,7 +767,88 @@ IF @defId IS NOT NULL UPDATE StockMovements SET WarehouseId = @defId WHERE Wareh
             normalized = normalized.Replace("||", "+");
         }
 
-        return normalized;
+        return PrefixUnicodeLiterals(normalized);
+    }
+
+    /// <summary>
+    /// Türkçe karakter (ı, ş, ğ, İ...) içeren 'metin' sabitlerinin başına N ekler.
+    /// Veritabanı Latin1 harf düzeninde olduğundan N'siz 'Satış' sorguda 'Satis'e dönüşür ve
+    /// parametreyle doğru yazılmış 'Satış' kayıtlarıyla eşleşmez (bakiye 0 görünür).
+    /// </summary>
+    public static string PrefixUnicodeLiterals(string sql)
+    {
+        if (string.IsNullOrEmpty(sql) || !sql.Any(ch => ch > 127)) return sql;
+
+        var sb = new StringBuilder(sql.Length + 16);
+        int i = 0;
+        while (i < sql.Length)
+        {
+            char ch = sql[i];
+
+            // -- satır yorumu
+            if (ch == '-' && i + 1 < sql.Length && sql[i + 1] == '-')
+            {
+                int end = sql.IndexOf('\n', i);
+                if (end < 0) end = sql.Length;
+                sb.Append(sql, i, end - i);
+                i = end;
+                continue;
+            }
+
+            // /* blok yorumu */
+            if (ch == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
+            {
+                int end = sql.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                end = end < 0 ? sql.Length : end + 2;
+                sb.Append(sql, i, end - i);
+                i = end;
+                continue;
+            }
+
+            // [köşeli parantezli tanımlayıcı]
+            if (ch == '[')
+            {
+                int end = sql.IndexOf(']', i + 1);
+                end = end < 0 ? sql.Length : end + 1;
+                sb.Append(sql, i, end - i);
+                i = end;
+                continue;
+            }
+
+            if (ch == '\'')
+            {
+                // Literalin sonunu bul ('' kaçış karakterini atla)
+                int j = i + 1;
+                while (j < sql.Length)
+                {
+                    if (sql[j] == '\'')
+                    {
+                        if (j + 1 < sql.Length && sql[j + 1] == '\'') { j += 2; continue; }
+                        break;
+                    }
+                    j++;
+                }
+                int end = Math.Min(j + 1, sql.Length);
+
+                bool alreadyN = i > 0 && (sql[i - 1] == 'N' || sql[i - 1] == 'n') &&
+                                (i < 2 || !(char.IsLetterOrDigit(sql[i - 2]) || sql[i - 2] == '_'));
+                bool hasUnicode = false;
+                for (int k = i + 1; k < end - 1; k++)
+                {
+                    if (sql[k] > 127) { hasUnicode = true; break; }
+                }
+
+                if (hasUnicode && !alreadyN) sb.Append('N');
+                sb.Append(sql, i, end - i);
+                i = end;
+                continue;
+            }
+
+            sb.Append(ch);
+            i++;
+        }
+
+        return sb.ToString();
     }
 
     public static DataTable Query(string sql, params (string Name, object? Value)[] p)
@@ -828,60 +954,97 @@ ALTER DATABASE [{_config.DatabaseName}] SET MULTI_USER;";
     /// </summary>
     public static void ResetAllDataAndReseed(bool keepLicense = true)
     {
-        using var c = Open();
-        using var cmd = c.CreateCommand();
-        cmd.CommandText = @"
--- 1. İşlem ve Hareket Tablolarını Sil
-DELETE FROM InvoicePayments;
-DELETE FROM InvoiceItems;
-DELETE FROM Invoices;
-DELETE FROM StockMovements;
-DELETE FROM ProductPriceHistory;
-DELETE FROM ProductVariants;
-DELETE FROM Products;
-DELETE FROM AccountMovements;
-DELETE FROM Accounts;
-DELETE FROM DailyRegisterClosings;
-DELETE FROM Expenses;
-DELETE FROM AuditLogs;
-DELETE FROM Users;
-DELETE FROM Warehouses;
+        // Silinme sırası: önce bağlı (alt) tablolar
+        string[] tables =
+        {
+            "InvoicePayments", "InvoiceItems", "Invoices", "StockMovements", "ProductPriceHistory", "ProductVariants",
+            "Products", "AccountMovements", "Accounts", "DailyRegisterClosings", "Expenses", "AuditLogs", "Users", "Warehouses"
+        };
 
--- 2. Otomatik Artan ID Sayaçlarını (IDENTITY) Sıfırla (Sonraki satır ID=1 olur)
-IF OBJECT_ID('InvoicePayments') IS NOT NULL DBCC CHECKIDENT ('InvoicePayments', RESEED, 0);
-IF OBJECT_ID('InvoiceItems') IS NOT NULL DBCC CHECKIDENT ('InvoiceItems', RESEED, 0);
-IF OBJECT_ID('Invoices') IS NOT NULL DBCC CHECKIDENT ('Invoices', RESEED, 0);
-IF OBJECT_ID('StockMovements') IS NOT NULL DBCC CHECKIDENT ('StockMovements', RESEED, 0);
-IF OBJECT_ID('ProductPriceHistory') IS NOT NULL DBCC CHECKIDENT ('ProductPriceHistory', RESEED, 0);
-IF OBJECT_ID('ProductVariants') IS NOT NULL DBCC CHECKIDENT ('ProductVariants', RESEED, 0);
-IF OBJECT_ID('Products') IS NOT NULL DBCC CHECKIDENT ('Products', RESEED, 0);
-IF OBJECT_ID('AccountMovements') IS NOT NULL DBCC CHECKIDENT ('AccountMovements', RESEED, 0);
-IF OBJECT_ID('Accounts') IS NOT NULL DBCC CHECKIDENT ('Accounts', RESEED, 0);
-IF OBJECT_ID('DailyRegisterClosings') IS NOT NULL DBCC CHECKIDENT ('DailyRegisterClosings', RESEED, 0);
-IF OBJECT_ID('Expenses') IS NOT NULL DBCC CHECKIDENT ('Expenses', RESEED, 0);
-IF OBJECT_ID('AuditLogs') IS NOT NULL DBCC CHECKIDENT ('AuditLogs', RESEED, 0);
-IF OBJECT_ID('Users') IS NOT NULL DBCC CHECKIDENT ('Users', RESEED, 0);
-IF OBJECT_ID('Warehouses') IS NOT NULL DBCC CHECKIDENT ('Warehouses', RESEED, 0);
-";
-        cmd.ExecuteNonQuery();
+        using (var c = Open())
+        using (var tx = c.BeginTransaction())
+        {
+            try
+            {
+                SqlCommand Cmd(string sql)
+                {
+                    var cmd = c.CreateCommand();
+                    cmd.Transaction = tx;
+                    cmd.CommandText = sql;
+                    return cmd;
+                }
+
+                // Süper kullanıcı (lisans üretici hesabı) korunur: sıfırlamadan sonra Id=1 olarak geri yazılır
+                DataTable superUser;
+                using (var q = Cmd("SELECT Username, PasswordHash, FullName, Role, Permissions, CreatedAt FROM Users WHERE LOWER(Username) = 'super';"))
+                using (var r = q.ExecuteReader())
+                {
+                    superUser = new DataTable();
+                    superUser.Load(r);
+                }
+
+                foreach (var t in tables)
+                {
+                    // TRUNCATE kayıtları siler VE ID sayacını tablonun başlangıç değerine (1) döndürür.
+                    // (DELETE + RESEED 0, hiç kayıt almamış tabloda ilk Id'yi 0 yapıyordu.)
+                    // Yabancı anahtar yüzünden TRUNCATE edilemeyen tabloda DELETE + RESEED kullanılır.
+                    using var cmd = Cmd($@"
+IF OBJECT_ID('dbo.{t}') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE referenced_object_id = OBJECT_ID('dbo.{t}'))
+        TRUNCATE TABLE dbo.[{t}];
+    ELSE
+    BEGIN
+        DELETE FROM dbo.[{t}];
+        DBCC CHECKIDENT ('dbo.{t}', RESEED, 0) WITH NO_INFOMSGS;
+    END
+END");
+                    cmd.ExecuteNonQuery();
+                }
+
+                foreach (DataRow su in superUser.Rows)
+                {
+                    using var ins = Cmd(@"
+INSERT INTO Users (Username, PasswordHash, FullName, Role, Permissions, IsActive, CreatedAt)
+VALUES (@u, @p, @fn, @r, @perm, 1, @created);");
+                    ins.Parameters.AddWithValue("@u", su["Username"]);
+                    ins.Parameters.AddWithValue("@p", su["PasswordHash"]);
+                    ins.Parameters.AddWithValue("@fn", su["FullName"]);
+                    ins.Parameters.AddWithValue("@r", su["Role"]);
+                    ins.Parameters.AddWithValue("@perm", su["Permissions"]);
+                    ins.Parameters.AddWithValue("@created", su["CreatedAt"]);
+                    ins.ExecuteNonQuery();
+                }
+
+                tx.Commit();
+            }
+            catch
+            {
+                try { tx.Rollback(); } catch { }
+                throw;
+            }
+        }
 
         // 3. Varsayılan Kullanıcıları ve Depoyu ID 1'den Başlayarak Ekle
         SeedDefaultUsers();
         SeedDefaultWarehouse();
 
-        // 4. Arşivlenmiş Fatura PDF Dosyalarını Temizle
-        try
+        // 4. Arşivlenmiş Fatura PDF Dosyalarını Temizle (eski konum + asıl PDF arşivi)
+        foreach (var archiveDir in new[] { Path.Combine(Folder, "Invoices"), Services.PdfArchiveService.ArchiveRoot })
         {
-            string archiveDir = Path.Combine(Folder, "Invoices");
-            if (Directory.Exists(archiveDir))
+            try
             {
-                var files = Directory.GetFiles(archiveDir, "*.*", SearchOption.AllDirectories);
-                foreach (var f in files)
+                if (!Directory.Exists(archiveDir)) continue;
+                foreach (var f in Directory.GetFiles(archiveDir, "*.*", SearchOption.AllDirectories))
                 {
                     try { File.Delete(f); } catch { }
                 }
+                foreach (var d in Directory.GetDirectories(archiveDir, "*", SearchOption.AllDirectories).OrderByDescending(x => x.Length))
+                {
+                    try { if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } catch { }
+                }
             }
+            catch { }
         }
-        catch { }
     }
 }

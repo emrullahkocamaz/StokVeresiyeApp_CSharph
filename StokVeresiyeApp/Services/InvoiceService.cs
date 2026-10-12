@@ -13,6 +13,10 @@ public static class InvoiceService
     /// </summary>
     public static long SaveInvoice(Invoice invoice, bool updateStock = true, bool updateAccountBalance = true, long? replaceInvoiceId = null)
     {
+        // Carisiz fatura kaydedilmez: alış faturası mutlaka bir tedarikçi cariye bağlı olmalıdır (tekli ve toplu giriş)
+        if (invoice.AccountId <= 0)
+            throw new InvalidOperationException("Tedarikçi cari seçilmeden / oluşturulmadan fatura kaydedilemez.");
+
         // PDF'in güvenli kopyası ÖNCE programın arşiv klasörüne alınır ve doğrulanır (veritabanına PDF gömülmez).
         // Kaynak dosya (e-posta eki, USB, indirilenler) sonradan silinse bile fatura belgesi kaybolmaz.
         // Kopyalama başarısız olursa fatura hiç kaydedilmez.
@@ -252,7 +256,7 @@ VALUES (@pid, @dt, @doc, @sup, @oldSt, @addSt, @newSt, @oldB, @newB, @oldS, @new
                 {
                     TxExec(conn, tx, @"
 INSERT INTO AccountMovements (MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note)
-VALUES (@date, @accId, 'Alış', @doc, @amt, 'Fatura', 'Fatura Cari Kaydı', @note);",
+VALUES (@date, @accId, N'Alış', @doc, @amt, 'Fatura', N'Fatura Cari Kaydı', @note);",
                         ("@date", invoice.InvoiceDate.ToString("yyyy-MM-dd")),
                         ("@accId", invoice.AccountId),
                         ("@doc", invoice.InvoiceNumber),
@@ -360,8 +364,16 @@ VALUES (@date, @accId, 'Alış', @doc, @amt, 'Fatura', 'Fatura Cari Kaydı', @no
     {
         if (!string.IsNullOrWhiteSpace(itemCode))
         {
-            var byCode = TxQuery(conn, tx, "SELECT TOP 1 Id FROM Products WHERE Code = @c AND IsActive = 1 ORDER BY Id;", ("@c", itemCode.Trim()));
-            if (byCode.Rows.Count > 0) return Convert.ToInt64(byCode.Rows[0]["Id"]);
+            // Code sütunu UNIQUE: pasife alınmış (silinmiş) ürün de aynı kodu tutar. Onu bulup yeniden aktif et,
+            // aksi halde aynı kodla INSERT "Violation of UNIQUE KEY constraint" hatası verir.
+            var byCode = TxQuery(conn, tx, "SELECT TOP 1 Id, IsActive FROM Products WHERE Code = @c ORDER BY IsActive DESC, Id;", ("@c", itemCode.Trim()));
+            if (byCode.Rows.Count > 0)
+            {
+                long id = Convert.ToInt64(byCode.Rows[0]["Id"]);
+                if (!Convert.ToBoolean(byCode.Rows[0]["IsActive"]))
+                    TxExec(conn, tx, "UPDATE Products SET IsActive = 1 WHERE Id = @id;", ("@id", id));
+                return id;
+            }
         }
 
         if (string.IsNullOrWhiteSpace(name)) return null;
@@ -376,7 +388,7 @@ VALUES (@date, @accId, 'Alış', @doc, @amt, 'Fatura', 'Fatura Cari Kaydı', @no
     }
 
     /// <summary>Faturanın stok ve cari hareketlerini ve kendisini aynı transaction içinde geri alır.</summary>
-    private static (string InvoiceNumber, int StockDeleted, int AccountDeleted)? RollbackInvoiceInTransaction(SqlConnection conn, SqlTransaction tx, long invoiceId)
+    internal static (string InvoiceNumber, int StockDeleted, int AccountDeleted)? RollbackInvoiceInTransaction(SqlConnection conn, SqlTransaction tx, long invoiceId)
     {
         var dt = TxQuery(conn, tx, "SELECT InvoiceNumber, AccountId FROM Invoices WHERE Id = @id;", ("@id", invoiceId));
         if (dt.Rows.Count == 0) return null;
@@ -392,7 +404,8 @@ VALUES (@date, @accId, 'Alış', @doc, @amt, 'Fatura', 'Fatura Cari Kaydı', @no
                 "DELETE FROM StockMovements WHERE DocumentNo = @doc AND COALESCE(AccountId, 0) = @acc AND Note LIKE N'Fatura Girişi:%';",
                 ("@doc", invNo), ("@acc", accId));
             accDeleted = TxExec(conn, tx,
-                "DELETE FROM AccountMovements WHERE DocumentNo = @doc AND AccountId = @acc AND TransactionType IN (N'Alış', N'Ödeme');",
+                // 'Alış' N öneki olmadan yazıldığında Latin1 veritabanında 'Alis' olarak saklanır; iki yazımı da sil
+                "DELETE FROM AccountMovements WHERE DocumentNo = @doc AND AccountId = @acc AND TransactionType IN (N'Alış', N'Ödeme', 'Alış', 'Ödeme');",
                 ("@doc", invNo), ("@acc", accId));
         }
 
@@ -407,24 +420,64 @@ VALUES (@date, @accId, 'Alış', @doc, @amt, 'Fatura', 'Fatura Cari Kaydı', @no
     /// </summary>
     public static Account? FindAccountByTaxOrName(string? taxNumber, string? name)
     {
+        long? id = FindSupplierAccountId(taxNumber, name);
+        return id.HasValue ? AccountService.GetById(id.Value) : null;
+    }
+
+    /// <summary>
+    /// Faturadaki tedarikçiyi sistemde arar (tekli ve toplu fatura girişi aynı kuralı kullanır):
+    /// 1) VKN/TCKN, 2) birebir unvan, 3) unvanın ilk 12 harfi (yalnızca TEK aday varsa).
+    /// Pasife alınmış cari bulunursa yeniden aktif edilir (Name sütunu UNIQUE olduğu için aynı adla yenisi açılamaz).
+    /// </summary>
+    public static long? FindSupplierAccountId(string? taxNumber, string? name, bool reactivate = true)
+    {
         if (!string.IsNullOrWhiteSpace(taxNumber))
         {
-            var dt = Database.Query("SELECT TOP 1 * FROM Accounts WHERE TaxNumber = @tax AND IsActive = 1;", ("@tax", taxNumber.Trim()));
-            if (dt.Rows.Count > 0)
-                return AccountService.GetById(Convert.ToInt64(dt.Rows[0]["Id"]));
+            var dt = Database.Query("SELECT TOP 1 Id, IsActive FROM Accounts WHERE TaxNumber = @tax ORDER BY IsActive DESC, Id;", ("@tax", taxNumber.Trim()));
+            if (dt.Rows.Count > 0) return reactivate ? ReactivateAccount(dt.Rows[0]) : Convert.ToInt64(dt.Rows[0]["Id"]);
         }
 
         if (!string.IsNullOrWhiteSpace(name))
         {
-            var dt = Database.Query("SELECT TOP 1 * FROM Accounts WHERE (Name = @n OR Name LIKE @nLike) AND IsActive = 1;",
-                ("@n", name.Trim()),
-                ("@nLike", $"%{name.Trim().Substring(0, Math.Min(12, name.Trim().Length))}%")
-            );
-            if (dt.Rows.Count > 0)
-                return AccountService.GetById(Convert.ToInt64(dt.Rows[0]["Id"]));
+            string n = name.Trim();
+            var exact = Database.Query("SELECT TOP 1 Id, IsActive FROM Accounts WHERE Name = @n ORDER BY IsActive DESC, Id;", ("@n", n));
+            if (exact.Rows.Count > 0) return reactivate ? ReactivateAccount(exact.Rows[0]) : Convert.ToInt64(exact.Rows[0]["Id"]);
+
+            var like = Database.Query("SELECT TOP 2 Id, IsActive FROM Accounts WHERE Name LIKE @nLike AND IsActive = 1 ORDER BY Id;",
+                ("@nLike", $"%{n.Substring(0, Math.Min(12, n.Length))}%"));
+            if (like.Rows.Count == 1) return Convert.ToInt64(like.Rows[0]["Id"]);
         }
 
         return null;
+    }
+
+    private static long ReactivateAccount(DataRow row)
+    {
+        long id = Convert.ToInt64(row["Id"]);
+        if (!Convert.ToBoolean(row["IsActive"]))
+            Database.Execute("UPDATE Accounts SET IsActive = 1 WHERE Id = @id;", ("@id", id));
+        return id;
+    }
+
+    /// <summary>Faturadaki satıcı bilgileriyle yeni tedarikçi cari kartı açar ve Id'sini döner.</summary>
+    public static long CreateSupplierAccount(string name, string? taxNumber, string? taxOffice, string? address)
+    {
+        name = name.Trim();
+        if (name.Length > 240) name = name.Substring(0, 240);
+
+        var idObj = Database.ExecuteScalar(@"
+INSERT INTO Accounts (Name, Type, Phone, TaxOffice, TaxNumber, Address, PriceGroup, DefaultDiscountPercent, BalanceLimit, IsActive)
+VALUES (@n, @type, '', @to, @tax, @addr, 'Perakende', 0, 0, 1);
+SELECT SCOPE_IDENTITY();",
+            ("@n", name),
+            ("@type", "Tedarikçi"),
+            ("@to", string.IsNullOrWhiteSpace(taxOffice) ? (object)DBNull.Value : taxOffice.Trim()),
+            ("@tax", string.IsNullOrWhiteSpace(taxNumber) ? (object)DBNull.Value : taxNumber.Trim()),
+            ("@addr", string.IsNullOrWhiteSpace(address) ? (object)DBNull.Value : address.Trim()));
+
+        long id = Convert.ToInt64(idObj);
+        AuditLogService.Log("Cari", "Yeni Eklendi", id, name, null, $"Ad: {name}, Tür: Tedarikçi, Vergi: {taxOffice}/{taxNumber}", "Fatura girişinde tedarikçi cari otomatik oluşturuldu");
+        return id;
     }
 
     /// <summary>
@@ -518,6 +571,61 @@ ORDER BY ItemCount DESC, HasPdf DESC, i.Id DESC;", ("@num", invNo));
         }
 
         return (removedTotal, uniqueCount);
+    }
+
+    public class BulkDeleteLine
+    {
+        public long InvoiceId { get; set; }
+        public string InvoiceNumber { get; set; } = "";
+        public string AccountName { get; set; } = "";
+        public double GrandTotal { get; set; }
+        public int ItemCount { get; set; }
+        public double Quantity { get; set; }
+        public string? PdfPath { get; set; }
+    }
+
+    /// <summary>Toplu fatura silmeden önce gösterilecek özet ve eksiye düşecek ürün sayısı.</summary>
+    public static (List<BulkDeleteLine> Lines, int ProductsGoingNegative) GetBulkDeleteImpact(IReadOnlyCollection<long> invoiceIds)
+    {
+        var lines = new List<BulkDeleteLine>();
+        if (invoiceIds.Count == 0) return (lines, 0);
+
+        string idList = string.Join(",", invoiceIds.Select(i => i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        var dt = Database.Query($@"
+SELECT i.Id, i.InvoiceNumber, COALESCE(a.Name, N'(Tanımsız Cari)') AS AccountName, i.GrandTotal, i.PdfPath,
+       (SELECT COUNT(*) FROM InvoiceItems ii WHERE ii.InvoiceId = i.Id) AS ItemCount,
+       (SELECT COALESCE(SUM(ii.Quantity), 0) FROM InvoiceItems ii WHERE ii.InvoiceId = i.Id) AS Qty
+FROM Invoices i LEFT JOIN Accounts a ON a.Id = i.AccountId
+WHERE i.Id IN ({idList})
+ORDER BY i.InvoiceDate, i.Id;");
+
+        foreach (DataRow r in dt.Rows)
+        {
+            lines.Add(new BulkDeleteLine
+            {
+                InvoiceId = Convert.ToInt64(r["Id"]),
+                InvoiceNumber = r["InvoiceNumber"]?.ToString() ?? "",
+                AccountName = r["AccountName"]?.ToString() ?? "",
+                GrandTotal = r["GrandTotal"] == DBNull.Value ? 0 : Convert.ToDouble(r["GrandTotal"]),
+                ItemCount = Convert.ToInt32(r["ItemCount"]),
+                Quantity = Convert.ToDouble(r["Qty"]),
+                PdfPath = r["PdfPath"] == DBNull.Value ? null : r["PdfPath"]?.ToString()
+            });
+        }
+
+        // Geri alma, RollbackInvoiceInTransaction'ın sildiği fatura stok girişlerini düşer; zaten satılmış mal eksiye düşer
+        var neg = Database.ExecuteScalar($@"
+SELECT COUNT(*) FROM (
+    SELECT sm.ProductId
+    FROM StockMovements sm
+    JOIN Invoices i ON i.InvoiceNumber = sm.DocumentNo AND COALESCE(sm.AccountId, 0) = i.AccountId
+    JOIN vw_ProductStock v ON v.ProductId = sm.ProductId
+    WHERE i.Id IN ({idList}) AND sm.Note LIKE N'Fatura Girişi:%'
+    GROUP BY sm.ProductId, v.CurrentStock
+    HAVING v.CurrentStock - SUM(sm.Quantity) < -0.0001
+) x;");
+
+        return (lines, Convert.ToInt32(neg ?? 0));
     }
 
     /// <summary>

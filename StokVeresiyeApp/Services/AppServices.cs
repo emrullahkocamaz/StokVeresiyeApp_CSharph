@@ -800,7 +800,7 @@ VALUES(@d, @a, @t, @doc, @amt, 'Nakit', 'Merkez Kasa', @n);";
                     cmdCard.Transaction = tx;
                     cmdCard.CommandText = @"
 INSERT INTO AccountMovements(MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note)
-VALUES(@d, @a, @t, @doc, @amt, 'Kredi Kartı', 'POS / Banka', @n);";
+VALUES(@d, @a, @t, @doc, @amt, N'Kredi Kartı', 'POS / Banka', @n);";
                     cmdCard.Parameters.AddWithValue("@d", date.ToString("yyyy-MM-dd"));
                     cmdCard.Parameters.AddWithValue("@a", accountId);
                     cmdCard.Parameters.AddWithValue("@t", offsetType);
@@ -817,7 +817,7 @@ VALUES(@d, @a, @t, @doc, @amt, 'Kredi Kartı', 'POS / Banka', @n);";
                     cmdTr.Transaction = tx;
                     cmdTr.CommandText = @"
 INSERT INTO AccountMovements(MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note)
-VALUES(@d, @a, @t, @doc, @amt, 'Havale/EFT', 'Banka Hesabı', @n);";
+VALUES(@d, @a, @t, @doc, @amt, 'Havale/EFT', N'Banka Hesabı', @n);";
                     cmdTr.Parameters.AddWithValue("@d", date.ToString("yyyy-MM-dd"));
                     cmdTr.Parameters.AddWithValue("@a", accountId);
                     cmdTr.Parameters.AddWithValue("@t", offsetType);
@@ -851,7 +851,7 @@ VALUES(@d, 0, @t, @doc, @amt, 'Nakit', 'Merkez Kasa', @n);";
                     cmdCard.Transaction = tx;
                     cmdCard.CommandText = @"
 INSERT INTO AccountMovements(MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note)
-VALUES(@d, 0, @t, @doc, @amt, 'Kredi Kartı', 'POS / Banka', @n);";
+VALUES(@d, 0, @t, @doc, @amt, N'Kredi Kartı', 'POS / Banka', @n);";
                     cmdCard.Parameters.AddWithValue("@d", date.ToString("yyyy-MM-dd"));
                     cmdCard.Parameters.AddWithValue("@t", offsetType);
                     cmdCard.Parameters.AddWithValue("@doc", docNo ?? (object)DBNull.Value);
@@ -866,7 +866,7 @@ VALUES(@d, 0, @t, @doc, @amt, 'Kredi Kartı', 'POS / Banka', @n);";
                     cmdTr.Transaction = tx;
                     cmdTr.CommandText = @"
 INSERT INTO AccountMovements(MovementDate, AccountId, TransactionType, DocumentNo, Amount, Method, CashBank, Note)
-VALUES(@d, 0, @t, @doc, @amt, 'Havale/EFT', 'Banka Hesabı', @n);";
+VALUES(@d, 0, @t, @doc, @amt, 'Havale/EFT', N'Banka Hesabı', @n);";
                     cmdTr.Parameters.AddWithValue("@d", date.ToString("yyyy-MM-dd"));
                     cmdTr.Parameters.AddWithValue("@t", offsetType);
                     cmdTr.Parameters.AddWithValue("@doc", docNo ?? (object)DBNull.Value);
@@ -1453,15 +1453,15 @@ WHERE ProductId = $p", ("$p", productId), ("$w", warehouseId));
             cmdOut.Transaction = tx;
             cmdOut.CommandText = @"
 INSERT INTO StockMovements (MovementDate, ProductId, MovementType, Quantity, UnitPrice, DocumentNo, WarehouseId, TargetWarehouseId, Note)
-VALUES ($d, $p, 'Transfer Çıkış', $q, $up, $doc, $w1, $w2, $n);";
-            cmdOut.Parameters.AddWithValue("$d", today);
-            cmdOut.Parameters.AddWithValue("$p", productId);
-            cmdOut.Parameters.AddWithValue("$q", quantity);
-            cmdOut.Parameters.AddWithValue("$up", prod.PurchasePrice);
-            cmdOut.Parameters.AddWithValue("$doc", autoDoc);
-            cmdOut.Parameters.AddWithValue("$w1", sourceWarehouseId);
-            cmdOut.Parameters.AddWithValue("$w2", targetWarehouseId);
-            cmdOut.Parameters.AddWithValue("$n", fullNote);
+VALUES (@d, @p, N'Transfer Çıkış', @q, @up, @doc, @w1, @w2, @n);";
+            cmdOut.Parameters.AddWithValue("@d", today);
+            cmdOut.Parameters.AddWithValue("@p", productId);
+            cmdOut.Parameters.AddWithValue("@q", quantity);
+            cmdOut.Parameters.AddWithValue("@up", prod.PurchasePrice);
+            cmdOut.Parameters.AddWithValue("@doc", autoDoc);
+            cmdOut.Parameters.AddWithValue("@w1", sourceWarehouseId);
+            cmdOut.Parameters.AddWithValue("@w2", targetWarehouseId);
+            cmdOut.Parameters.AddWithValue("@n", fullNote);
             cmdOut.ExecuteNonQuery();
 
             // 2. Hedef depoya Transfer Giriş
@@ -1469,15 +1469,15 @@ VALUES ($d, $p, 'Transfer Çıkış', $q, $up, $doc, $w1, $w2, $n);";
             cmdIn.Transaction = tx;
             cmdIn.CommandText = @"
 INSERT INTO StockMovements (MovementDate, ProductId, MovementType, Quantity, UnitPrice, DocumentNo, WarehouseId, TargetWarehouseId, Note)
-VALUES ($d, $p, 'Transfer Giriş', $q, $up, $doc, $w2, $w1, $n);";
-            cmdIn.Parameters.AddWithValue("$d", today);
-            cmdIn.Parameters.AddWithValue("$p", productId);
-            cmdIn.Parameters.AddWithValue("$q", quantity);
-            cmdIn.Parameters.AddWithValue("$up", prod.PurchasePrice);
-            cmdIn.Parameters.AddWithValue("$doc", autoDoc);
-            cmdIn.Parameters.AddWithValue("$w2", targetWarehouseId);
-            cmdIn.Parameters.AddWithValue("$w1", sourceWarehouseId);
-            cmdIn.Parameters.AddWithValue("$n", fullNote);
+VALUES (@d, @p, N'Transfer Giriş', @q, @up, @doc, @w2, @w1, @n);";
+            cmdIn.Parameters.AddWithValue("@d", today);
+            cmdIn.Parameters.AddWithValue("@p", productId);
+            cmdIn.Parameters.AddWithValue("@q", quantity);
+            cmdIn.Parameters.AddWithValue("@up", prod.PurchasePrice);
+            cmdIn.Parameters.AddWithValue("@doc", autoDoc);
+            cmdIn.Parameters.AddWithValue("@w2", targetWarehouseId);
+            cmdIn.Parameters.AddWithValue("@w1", sourceWarehouseId);
+            cmdIn.Parameters.AddWithValue("@n", fullNote);
             cmdIn.ExecuteNonQuery();
 
             tx.Commit();

@@ -15,8 +15,6 @@ Setup_Output/
 *.sln.docstates
 
 # Build outputs
-*.bat
-*.ps1
 *.dll
 *.exe
 *.pdb
@@ -31,3 +29,6 @@ build_out.txt
 build_utf8.txt
 check_recent.ps1
 test_login.ps1
+
+# Kurulum paketine eklenen Microsoft yeniden dağıtılabilir dosyaları (büyük)
+StokVeresiyeApp/Redist/*.msi

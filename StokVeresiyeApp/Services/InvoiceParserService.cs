@@ -464,14 +464,20 @@ public static class InvoiceParserService
             }
 
             // 6. Tutarlar (Matrah, KDV, Ödenecek Tutar / Genel Toplam)
-            var matchSub = Regex.Match(fullText, @"(?:Mal\s*Hizmet\s*Toplam\s*Tutarı|KDV\s*Matrahı|Vergi\s*Hariç\s*Tutar|Matrah|Ara\s*Toplam)\s*[:\s-]*([0-9\.,]+)", RegexOptions.IgnoreCase);
+            var matchSub = Regex.Match(fullText, @"(?:Mal\s*(?:\/\s*|ve\s*)?Hizmet\s*Toplam\s*Tutarı|KDV\s*Matrahı|Vergi\s*Hariç\s*Tutar|Matrah|Ara\s*Toplam)\s*[:\s-]*([0-9\.,]+)", RegexOptions.IgnoreCase);
             if (matchSub.Success)
             {
                 result.SubTotal = ParseDouble(matchSub.Groups[1].Value);
             }
 
-            var matchVat = Regex.Match(fullText, @"(?:Hesaplanan\s*KDV|KDV\s*Tutarı|KDV\s*Toplamı|Toplam\s*KDV)\s*[:\s-]*([0-9\.,]+)", RegexOptions.IgnoreCase);
-            if (matchVat.Success)
+            // Birden fazla KDV oranı olabilir: "Hesaplanan KDV (% 10 ) 16.082,50 TL" + "Hesaplanan KDV (% 20 ) 105,00 TL"
+            var matchVats = Regex.Matches(fullText, @"Hesaplanan\s*KDV(?:\s*\(\s*%\s*[0-9\.,]+\s*\))?\s*[:\s-]*([0-9\.,]+)", RegexOptions.IgnoreCase);
+            var matchVat = Regex.Match(fullText, @"(?:KDV\s*Tutarı|KDV\s*Toplamı|Toplam\s*KDV)\s*[:\s-]*([0-9\.,]+)", RegexOptions.IgnoreCase);
+            if (matchVats.Count > 0)
+            {
+                result.VatTotal = Math.Round(matchVats.Cast<Match>().Sum(m => ParseDouble(m.Groups[1].Value)), 2);
+            }
+            else if (matchVat.Success)
             {
                 result.VatTotal = ParseDouble(matchVat.Groups[1].Value);
             }
@@ -570,14 +576,20 @@ public static class InvoiceParserService
             string t = rawLine.Trim();
             if (string.IsNullOrWhiteSpace(t) || t == "." || t == "-" || t == ":") continue;
 
+            // 0. Tarayıcı/yazıcı sayfa altı ve sayfa başı satırları (tabloyu bölmez, sadece atlanır)
+            if (Regex.IsMatch(t, @"^(file:\/\/|about:blank|Page\s+\d+\s+of\s+\d+$|Sayfa\s*\d+\s*(\/|of)\s*\d+$)", RegexOptions.IgnoreCase))
+                continue;
+
             // 1. Genel Fatura Dipnotları, Banka ve Alt Toplam Satırları (Ürün kalemi değildir)
-            if (Regex.IsMatch(t, @"(Mal\s*Hizmet\s*Toplam|Toplam\s*İskonto|KDV\s*Matrahı|Vergi\s*Hariç|Hesaplanan\s*KDV|Vergiler\s*Dahil|Ödenecek\s*Tutar|Genel\s*Toplam|YALNIZ\b|İrsaliye\s*(?:Yerine|yerine)|Ödeme\s*Şekli|Banka\s*Hesap|IBAN|Toplam\s*Kilo|Toplam\s*Gram|Toplam\s*Adet|Lütfen\s*banka|Vergi\s*İstisna|Muafiyet|3065\s*Sayılı|suluova\s*satış|about:blank|e-Fatura\s*Page|VAKIFLAR|ZİRAAT|HALK\s*BANKASI)", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(t, @"(Mal\s*(?:\/\s*|ve\s*)?Hizmet\s*Toplam|Toplam\s*İskonto|KDV\s*Matrahı|Vergi\s*Hariç|Hesaplanan\s*KDV|Vergiler\s*Dahil|Ödenecek\s*Tutar|Genel\s*Toplam|YALNIZ\b|İrsaliye\s*(?:Yerine|yerine)|Ödeme\s*Şekli|Banka\s*Hesap|IBAN|Toplam\s*Kilo|Toplam\s*Gram|Toplam\s*Adet|Lütfen\s*banka|Vergi\s*İstisna|Muafiyet|3065\s*Sayılı|suluova\s*satış|about:blank|e-Fatura\s*Page|VAKIFLAR|ZİRAAT|HALK\s*BANKASI)", RegexOptions.IgnoreCase))
             {
                 if (!string.IsNullOrWhiteSpace(currentMerged))
                 {
                     mergedRows.Add(currentMerged);
                     currentMerged = "";
                 }
+                // Toplamlar / banka bloğu tablonun sonudur; sonraki satırlar (hesap no, IBAN vb.) kaleme eklenmez
+                isInsideTable = false;
                 continue;
             }
 
@@ -599,6 +611,19 @@ public static class InvoiceParserService
             bool startsWithLineNo = Regex.IsMatch(t, @"^\d{1,3}\s+(\d{8,14}|[A-Za-zÇĞİÖŞÜçğıöşü\(\[\{]|[A-Z0-9\-]{3,})");
             // b) Doğrudan 13 haneli EAN/Barkod ile başlayan satırlar: "978625...", "8690...", "6971..."
             bool startsWithEanBarcode = Regex.IsMatch(t, @"^(97[89]\d{10}|86[89]\d{10}|69\d{11}|\d{13})\b");
+
+            // c) Çok satırlı açıklamada metnin bir kısmı sıra numarasından ÖNCE gelir:
+            //    "Müslin Alt Üst Elbise Takım - Kremit & 5 ZD05-L IKRA000011522 1 Adet 1.260,00 TL ..."
+            //    Satırda miktar+birim varsa sıra no'dan başlatıp öndeki metni sona taşı.
+            if (!startsWithLineNo && !startsWithEanBarcode)
+            {
+                var preMatch = Regex.Match(t, @"^(?<pre>.+?)\s(?<row>\d{1,3}\s+(?!(?:ADET|ADT|KG|KOLİ|PAKET|LİTRE|METRE|KUTU|TL)\b)[A-Z0-9][A-Z0-9\-\._\/]{2,}\s.*\d+(?:[\.,]\d+)?\s*(?:ADET|Adet|adet|ADT|Adt|KG|Kg|kg|KOLİ|Koli|PAKET|Paket|LİTRE|Litre|Lt|METRE|Metre|Mt|KUTU|Kutu)\b.*)$");
+                if (preMatch.Success)
+                {
+                    t = preMatch.Groups["row"].Value + " " + preMatch.Groups["pre"].Value;
+                    startsWithLineNo = true;
+                }
+            }
 
             if (startsWithLineNo || startsWithEanBarcode)
             {
@@ -692,7 +717,11 @@ public static class InvoiceParserService
 
         // 3. Ürün Kodu Tespiti (varsa)
         string? itemCode = null;
-        var cMatch = Regex.Match(w, @"\b([A-Z0-9]{3,8}-[A-Z0-9]{2,8}|[A-Z]\d{6,10}[A-Z0-9]*)\b", RegexOptions.IgnoreCase);
+        // 3.1. Sıra no'dan hemen sonra gelen, rakam veya tire içeren büyük harfli kod (örn: "ZD05-L", "HLYE-00-M", "CB45-7-8", "NK02")
+        var leadCodeMatch = sMatch.Success ? Regex.Match(w, @"^\s*(?=[A-Z0-9\-\._\/]*[0-9\-])(?=[A-Z0-9\-\._\/]*[A-Z])([A-Z0-9][A-Z0-9\-\._\/]{2,40})(?=\s|$)") : Match.Empty;
+        var cMatch = leadCodeMatch.Success
+            ? leadCodeMatch
+            : Regex.Match(w, @"\b([A-Z0-9]{3,8}-[A-Z0-9]{2,8}|[A-Z]\d{6,10}[A-Z0-9]*)\b", RegexOptions.IgnoreCase);
         if (cMatch.Success)
         {
             itemCode = cMatch.Groups[1].Value;
@@ -786,7 +815,8 @@ public static class InvoiceParserService
         }
 
         // 6. Sayısal Değerleri (Fiyat, Tutar, İskonto) Ayıkla
-        var numMatches = Regex.Matches(w, @"\b\d+(?:[\.,]\d+)?\b");
+        // "16.082,50" gibi binlik ayraçlı tutarlar tek sayı olarak alınır
+        var numMatches = Regex.Matches(w, @"\b\d+(?:[\.,]\d+)*\b");
         var numbers = new List<double>();
         foreach (Match m in numMatches)
         {
@@ -922,10 +952,11 @@ public static class InvoiceParserService
         double vatAmt = Math.Round(lineTotal * (vatRate / 100.0), 2);
 
         // 7. Ürün Adını Temizle (Ürünün Adı ve Mal ve Hizmet Açıklaması)
-        string cleanName = Regex.Replace(w, @"\b\d+(?:[\.,]\d+)?\b", " ");
+        string cleanName = Regex.Replace(w, @"\b\d+(?:[\.,]\d+)*\b", " ");
         cleanName = Regex.Replace(cleanName, @"\b(TL|₺|Adet|ADET|ADT|KG|Kg|Koli|Paket)\b", " ", RegexOptions.IgnoreCase);
         cleanName = Regex.Replace(cleanName, @"\b(Mal\s*(?:ve\s*)?Hizmet(?:\s*Açıklamas[ıi])?|Ürünün\s*Adı|Ürün\s*Adı|Mal\s*\/|Açıklamas[ıi])\b", " ", RegexOptions.IgnoreCase);
         cleanName = Regex.Replace(cleanName, @"[%*#_/:;]", " ");
+        cleanName = Regex.Replace(cleanName, @"\(\s*\)", " ");
         cleanName = Regex.Replace(cleanName, @"\s+", " ").Trim();
 
         if (cleanName.Length > 490) cleanName = cleanName.Substring(0, 490).Trim();

@@ -23,6 +23,19 @@ public class AccountForm : BaseModernForm
 
     private readonly long _id = -1;
 
+    /// <summary>Yeni cari kaydedildiyse oluşan Id (fatura girişinde seçili cariyi ayarlamak için).</summary>
+    public long SavedAccountId { get; private set; }
+
+    /// <summary>Faturadaki satıcı bilgileriyle formu tedarikçi olarak önceden doldurur (kullanıcı kontrol edip kaydeder).</summary>
+    public void PrefillSupplier(string? name, string? taxOffice, string? taxNumber, string? address)
+    {
+        _cmbType.SelectedItem = "Tedarikçi";
+        if (!string.IsNullOrWhiteSpace(name)) _txtName.Text = name.Trim();
+        if (!string.IsNullOrWhiteSpace(taxOffice)) _txtTaxOffice.Text = taxOffice.Trim();
+        if (!string.IsNullOrWhiteSpace(taxNumber)) _txtTaxNumber.Text = taxNumber.Trim();
+        if (!string.IsNullOrWhiteSpace(address)) _txtAddress.Text = address.Trim();
+    }
+
     public AccountForm(long? accountId = null) : base(accountId.HasValue && accountId.Value > 0 ? "Cari Kart Düzenle" : "Yeni Cari Tanımla", 640, 660)
     {
         _id = accountId ?? -1;
@@ -182,6 +195,7 @@ SELECT SCOPE_IDENTITY();",
                     ("$blk", _chkBlacklist.Checked ? 1 : 0));
 
                 long newId = newIdScalar != null && newIdScalar != DBNull.Value ? Convert.ToInt64(newIdScalar) : 0;
+                SavedAccountId = newId;
                 Services.AuditLogService.Log("Cari", "Yeni Eklendi", newId, name, null, newDetails, "Yeni cari kartı tanımlandı");
             }
             else

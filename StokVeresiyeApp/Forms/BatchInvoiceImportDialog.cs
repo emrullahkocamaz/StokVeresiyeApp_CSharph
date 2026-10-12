@@ -395,6 +395,23 @@ public class BatchInvoiceImportDialog : Form
         SetupAllProductsGrid();
         _tabAllProducts.Controls.Add(_gridAllProducts);
         _gridAllProducts.BringToFront();
+
+        BindTextColumnsByName(_gridInvoices);
+        BindTextColumnsByName(_gridDetailItems);
+        BindTextColumnsByName(_gridAllProducts);
+    }
+
+    /// <summary>
+    /// AutoGenerateColumns=false iken DataPropertyName verilmeyen sütunlar boş görünür.
+    /// Metin sütunlarının adı modeldeki alan adıyla aynı olduğundan adı bağlama alanı olarak kullan.
+    /// </summary>
+    private static void BindTextColumnsByName(DataGridView grid)
+    {
+        foreach (DataGridViewColumn col in grid.Columns)
+        {
+            if (col is DataGridViewTextBoxColumn && string.IsNullOrEmpty(col.DataPropertyName))
+                col.DataPropertyName = col.Name;
+        }
     }
 
     private Control CreateStatCard(string title, Label lblValue, Color bg, Color border)
@@ -458,6 +475,7 @@ public class BatchInvoiceImportDialog : Form
         var colTaxOffice = new DataGridViewTextBoxColumn { Name = "SupplierTaxOffice", HeaderText = "Vergi Dairesi", Width = 95 };
         var colEttn = new DataGridViewTextBoxColumn { Name = "ReferenceNo", HeaderText = "ETTN / UUID", Width = 120 };
         var colItems = new DataGridViewTextBoxColumn { Name = "ItemCount", HeaderText = "Kalem", Width = 55 };
+        var colQty = new DataGridViewTextBoxColumn { Name = "TotalQuantity", DataPropertyName = "TotalQuantity", HeaderText = "Toplam Miktar", Width = 80, DefaultCellStyle = { Format = "#,0.##" } };
         var colSubTotal = new DataGridViewTextBoxColumn { Name = "SubTotal", HeaderText = "Ara Toplam", Width = 95 };
         var colVat = new DataGridViewTextBoxColumn { Name = "VatTotal", HeaderText = "KDV", Width = 80 };
         var colTotal = new DataGridViewTextBoxColumn { Name = "GrandTotal", HeaderText = "Genel Toplam", Width = 105 };
@@ -466,7 +484,7 @@ public class BatchInvoiceImportDialog : Form
         _gridInvoices.Columns.AddRange(
             colCheck, colBadge, colOpenBtn, colFile, colInvNo, colDate, colTime,
             colScenario, colKind, colSupplier, colTaxNo, colTaxOffice, colEttn,
-            colItems, colSubTotal, colVat, colTotal, colDiag
+            colItems, colQty, colSubTotal, colVat, colTotal, colDiag
         );
 
         _gridInvoices.CellFormatting += GridInvoices_CellFormatting;
@@ -836,6 +854,7 @@ public class BatchInvoiceImportDialog : Form
             model.OrderDate = res.OrderDate ?? string.Empty;
 
             model.ItemCount = res.Items.Count;
+            model.TotalQuantity = res.Items.Sum(x => x.Quantity);
             model.SubTotal = res.SubTotal;
             model.VatTotal = res.VatTotal;
             model.GrandTotal = res.GrandTotal;
@@ -1006,32 +1025,100 @@ public class BatchInvoiceImportDialog : Form
         catch { }
     }
 
+    /// <summary>
+    /// Kaydedilecek faturaların tedarikçi carilerini hazırlar (tekli fatura girişiyle aynı kural):
+    /// bulunan pasif cari aktif edilir; bulunamayanlar için [Evet] otomatik oluştur, [Hayır] her biri için
+    /// Yeni Cari formunu aç (elle), [İptal] kayıttan vazgeç. Cari oluşmayan fatura kaydedilmez. false = işlem iptal.
+    /// </summary>
+    private bool EnsureSupplierAccounts(List<BatchInvoiceItemModel> items)
+    {
+        // Önce yeniden ara (bu arada cari açılmış olabilir); bulunan pasif cariyi aktif et
+        foreach (var it in items)
+        {
+            long? id = InvoiceService.FindSupplierAccountId(it.SupplierTaxNo, it.SupplierName);
+            it.MatchedAccountId = id;
+            it.MatchedAccountName = id.HasValue ? Database.ExecuteScalar("SELECT Name FROM Accounts WHERE Id = @id;", ("@id", id.Value))?.ToString() : null;
+        }
+
+        // Aynı tedarikçinin birden fazla faturası olabilir: VKN, yoksa unvan bazında grupla
+        var missing = items.Where(x => !x.MatchedAccountId.HasValue)
+            .GroupBy(x => !string.IsNullOrWhiteSpace(x.SupplierTaxNo) ? "VKN:" + x.SupplierTaxNo.Trim() : "AD:" + (x.SupplierName ?? "").Trim().ToUpperInvariant())
+            .ToList();
+        if (missing.Count == 0) return true;
+
+        string list = string.Join("\n", missing.Take(12).Select(g =>
+        {
+            var f = g.First();
+            string nm = string.IsNullOrWhiteSpace(f.SupplierName) ? "(unvan okunamadı)" : f.SupplierName.Trim();
+            return $"• {nm}  [VKN: {(string.IsNullOrWhiteSpace(f.SupplierTaxNo) ? "-" : f.SupplierTaxNo)}]  ({g.Count()} fatura)";
+        }));
+        if (missing.Count > 12) list += $"\n… ve {missing.Count - 12} tedarikçi daha";
+
+        var res = MessageBox.Show(
+            $"Aşağıdaki {missing.Count} tedarikçinin sistemde carisi yok:\n\n{list}\n\n" +
+            "Carisi olmayan fatura kaydedilemez. Ne yapmak istersiniz?\n\n" +
+            "• [Evet] : Faturadaki bilgilerle carileri OTOMATİK oluştur.\n" +
+            "• [Hayır] : Her tedarikçi için Yeni Cari formunu açıp ELLE oluştur (formu kapatırsanız o faturalar kaydedilmez).\n" +
+            "• [İptal] : Kaydetmekten vazgeç.",
+            "Tedarikçi Cari Bulunamadı",
+            MessageBoxButtons.YesNoCancel,
+            MessageBoxIcon.Warning);
+
+        if (res == DialogResult.Cancel) return false;
+
+        foreach (var g in missing)
+        {
+            var f = g.First();
+            long accountId = 0;
+            try
+            {
+                if (res == DialogResult.Yes && !string.IsNullOrWhiteSpace(f.SupplierName) && f.SupplierName.Trim().Length >= 3)
+                {
+                    accountId = InvoiceService.CreateSupplierAccount(f.SupplierName, f.SupplierTaxNo, f.SupplierTaxOffice, f.SupplierAddress);
+                }
+                else
+                {
+                    // Elle oluşturma (veya unvan okunamadığı için otomatik açılamayan cari)
+                    using var accForm = new AccountForm();
+                    accForm.PrefillSupplier(f.SupplierName, f.SupplierTaxOffice, f.SupplierTaxNo, f.SupplierAddress);
+                    if (accForm.ShowDialog(this) == DialogResult.OK)
+                        accountId = accForm.SavedAccountId > 0 ? accForm.SavedAccountId : InvoiceService.FindSupplierAccountId(f.SupplierTaxNo, f.SupplierName) ?? 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"'{f.SupplierName}' carisi oluşturulamadı: {ex.Message}", "Cari Oluşturma Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
+            string? accName = accountId > 0 ? Database.ExecuteScalar("SELECT Name FROM Accounts WHERE Id = @id;", ("@id", accountId))?.ToString() : null;
+            foreach (var it in g)
+            {
+                if (accountId > 0)
+                {
+                    it.MatchedAccountId = accountId;
+                    it.MatchedAccountName = accName;
+                }
+                else
+                {
+                    it.DiagnosticMessage = "⛔ Tedarikçi carisi oluşturulmadığı için fatura kaydedilmedi.";
+                }
+            }
+        }
+
+        RefreshInvoicesGrid();
+        return true;
+    }
+
     private void MatchSupplierAccount(BatchInvoiceItemModel model)
     {
         try
         {
-            if (!string.IsNullOrWhiteSpace(model.SupplierTaxNo))
+            // Tekli fatura girişiyle aynı kural (VKN/TCKN → unvan). Tarama sırasında pasif cari aktif edilmez; kayıtta edilir.
+            long? id = InvoiceService.FindSupplierAccountId(model.SupplierTaxNo, model.SupplierName, reactivate: false);
+            if (id.HasValue)
             {
-                var dt = Database.Query("SELECT TOP 1 Id, Name FROM Accounts WHERE IsActive=1 AND (TaxNumber=@tax OR IdentityNumber=@tax);", ("@tax", model.SupplierTaxNo));
-                if (dt.Rows.Count > 0)
-                {
-                    model.MatchedAccountId = Convert.ToInt64(dt.Rows[0]["Id"]);
-                    model.MatchedAccountName = dt.Rows[0]["Name"]?.ToString();
-                    return;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(model.SupplierName))
-            {
-                string clean = model.SupplierName.Split(' ')[0];
-                var dtName = Database.Query("SELECT TOP 1 Id, Name FROM Accounts WHERE IsActive=1 AND (Name LIKE @full OR Name LIKE @first);",
-                    ("@full", "%" + model.SupplierName + "%"),
-                    ("@first", "%" + clean + "%"));
-                if (dtName.Rows.Count > 0)
-                {
-                    model.MatchedAccountId = Convert.ToInt64(dtName.Rows[0]["Id"]);
-                    model.MatchedAccountName = dtName.Rows[0]["Name"]?.ToString();
-                }
+                model.MatchedAccountId = id.Value;
+                model.MatchedAccountName = Database.ExecuteScalar("SELECT Name FROM Accounts WHERE Id = @id;", ("@id", id.Value))?.ToString();
             }
         }
         catch { }
@@ -1167,7 +1254,7 @@ public class BatchInvoiceImportDialog : Form
         _gridDetailItems.BringToFront();
 
         string savedState = item.IsSaved ? "✅ Veritabanına ve Stoklara Aktarıldı" : "⏳ Aktarılmayı Bekliyor";
-        _lblDetailHeader.Text = $"📄 {item.FileName} • {item.SupplierName} • {item.ItemCount} Kalem • Toplam: {item.GrandTotal:N2} ₺ • [{savedState}]";
+        _lblDetailHeader.Text = $"📄 {item.FileName} • {item.SupplierName} • {item.ItemCount} Kalem • {item.TotalQuantity:#,0.##} Miktar • Toplam: {item.GrandTotal:N2} ₺ • [{savedState}]";
 
         // Meta Rozetleri
         var metaParts = new List<string>();
@@ -1368,6 +1455,15 @@ public class BatchInvoiceImportDialog : Form
             return;
         }
 
+        // Carisiz fatura kaydedilmez: carisi olmayan tedarikçiler için otomatik / elle oluşturma seçeneği sunulur
+        if (!EnsureSupplierAccounts(toSave)) return;
+        toSave = toSave.Where(x => x.MatchedAccountId.HasValue && x.MatchedAccountId.Value > 0).ToList();
+        if (toSave.Count == 0)
+        {
+            MessageBox.Show("Carisi oluşturulmuş kaydedilecek fatura kalmadı.", "Fatura Seçilmedi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         long targetWarehouseId = 1;
         if (_cmbWarehouse.SelectedItem is WarehouseComboItem ci && ci.Id > 0)
         {
@@ -1416,25 +1512,10 @@ public class BatchInvoiceImportDialog : Form
                         _lblProgress.Text = $"Fatura ve stoklar kaydediliyor: {item.InvoiceNumber} ({item.SupplierName})...";
                     }));
 
-                    // 1. Cari Yoksa Otomatik Oluştur
+                    // 1. Cari kayıttan önce EnsureSupplierAccounts ile bulundu / oluşturuldu
                     long accountId = item.MatchedAccountId ?? 0;
                     if (accountId <= 0)
-                    {
-                        string accName = !string.IsNullOrWhiteSpace(item.SupplierName) ? item.SupplierName.Trim() : "Tedarikçi " + item.InvoiceNumber;
-                        var accIdObj = Database.ExecuteScalar(@"
-INSERT INTO Accounts (Code, Name, Type, TaxNumber, Address, Balance, CreatedAt)
-VALUES (@code, @name, 'Tedarikçi', @tax, @addr, 0, @created);
-SELECT SCOPE_IDENTITY();",
-                            ("@code", "TED-" + DateTime.Now.ToString("yyyyMMddHHmmss") + new Random().Next(10, 99)),
-                            ("@name", accName),
-                            ("@tax", (object?)item.SupplierTaxNo ?? DBNull.Value),
-                            ("@addr", (object?)item.ParsedResult?.SupplierAddress ?? DBNull.Value),
-                            ("@created", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
-                        );
-                        accountId = Convert.ToInt64(accIdObj);
-                        item.MatchedAccountId = accountId;
-                        item.MatchedAccountName = accName;
-                    }
+                        throw new InvalidOperationException("Tedarikçi cari bulunamadı / oluşturulmadı; fatura kaydedilmedi.");
 
                     // 2. Invoice Modelini Oluştur
                     var inv = new Invoice
@@ -1548,7 +1629,8 @@ SELECT SCOPE_IDENTITY();",
         MessageBox.Show(
             $"Toplu fatura ve stok aktarımı tamamlandı!\n\n" +
             $"• Başarıyla Kaydedilen Fatura: {savedCount}\n" +
-            $"• Depoya Girişi Yapılan Kalemler: {toSave.Sum(x => x.ItemCount)}\n" +
+            $"• Depoya Girişi Yapılan Kalemler: {toSave.Where(x => x.IsSaved).Sum(x => x.ItemCount)}\n" +
+            $"• Depoya Giren Toplam Miktar: {toSave.Where(x => x.IsSaved).Sum(x => x.TotalQuantity):#,0.##}\n" +
             $"• Hata Oluşan: {errorCount}\n\n" +
             $"Tüm ürünlerin yeni stok mevcudunu 'Tüm Taranan Ürünler' sekmesinden ve Ana Stok Listesinden görebilirsiniz.",
             "Stok ve Fatura Aktarımı Başarılı",

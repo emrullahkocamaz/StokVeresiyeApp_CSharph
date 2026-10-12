@@ -3271,7 +3271,7 @@ public class MainForm : Form
         mnuInvTools.Items.Add("📊 Excel'e Aktar", null, ExportInvoicesToExcel);
         mnuInvTools.Items.Add(new ToolStripSeparator());
         mnuInvTools.Items.Add("🧹 Mükerrer Faturaları Temizle", null, (s, e) => DeduplicateInvoicesClick());
-        mnuInvTools.Items.Add("🔙 Faturayı İptal Et / Geri Al", null, (s, e) => DeleteSelectedInvoiceClick());
+        mnuInvTools.Items.Add("🔙 Seçilen Faturaları İptal Et / Sil (Toplu)", null, (s, e) => DeleteSelectedInvoiceClick());
 
         var btnInvTools = UITheme.CreateButton("⚙️ İşlemler ▾", Color.FromArgb(241, 245, 249), UITheme.TextPrimary, (s, e) =>
         {
@@ -3285,7 +3285,10 @@ public class MainForm : Form
         var btnBatchInvoice = UITheme.CreateButton("📂 Toplu PDF Yükle", Color.FromArgb(14, 116, 144), Color.White, (s, e) => OpenBatchInvoiceImportDialog(), 140, 30);
         var btnNewInvoice = UITheme.CreateButton("➕ Yeni Alış Faturası", Color.FromArgb(79, 70, 229), Color.White, (s, e) => OpenInvoiceEntry(), 150, 30);
 
+        var btnBulkDelInv = UITheme.CreateButton("🗑️ Toplu Sil", UITheme.Danger, Color.White, (s, e) => DeleteSelectedInvoiceClick(), 100, 30);
+
         rowActions.Controls.Add(btnInvTools);
+        rowActions.Controls.Add(btnBulkDelInv);
         rowActions.Controls.Add(btnPayInv);
         rowActions.Controls.Add(btnBatchInvoice);
         rowActions.Controls.Add(btnNewInvoice);
@@ -3311,6 +3314,7 @@ public class MainForm : Form
         // Fatura Tablosu (Ferah ve Geniş Grid)
         var gridContainerInv = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 8, 0, 8) };
         UITheme.ApplyGridStyle(_gridInvoices);
+        _gridInvoices.MultiSelect = true; // Ctrl / Shift ile toplu fatura silme
         _gridInvoices.CellDoubleClick += (s, e) => OpenInvoiceMetaForSelectedInvoice();
 
         // Alış ve Satış Faturalarını Görsel Olarak Ayırt Etme
@@ -3371,7 +3375,7 @@ public class MainForm : Form
         {
             ForeColor = UITheme.Success
         };
-        var itemDel = new ToolStripMenuItem("🔙 Faturayı İptal Et / Geri Al (Stok ve Cariyi Sıfırla)", null, (s, e) => DeleteSelectedInvoiceClick())
+        var itemDel = new ToolStripMenuItem("🔙 Seçilen Faturaları İptal Et / Sil (Stok ve Cariyi Geri Al)", null, (s, e) => DeleteSelectedInvoiceClick())
         {
             Font = new Font(UITheme.RegularFont, FontStyle.Bold),
             ForeColor = Color.FromArgb(220, 38, 38)
@@ -4655,42 +4659,70 @@ public class MainForm : Form
             return;
         }
 
-        long invId = Convert.ToInt64(_gridInvoices.CurrentRow.Cells["Id"].Value);
-        string invNo = _gridInvoices.CurrentRow.Cells["Fatura No"].Value?.ToString() ?? "";
-        string accName = _gridInvoices.Columns.Contains("Cari Ünvanı") ? _gridInvoices.CurrentRow.Cells["Cari Ünvanı"].Value?.ToString() ?? "" : "";
-        double grandTotal = _gridInvoices.Columns.Contains("Fatura Tutarı") ? Convert.ToDouble(_gridInvoices.CurrentRow.Cells["Fatura Tutarı"].Value) : 0;
+        // Çoklu seçim: Ctrl / Shift ile seçilen tüm faturalar; seçim yoksa üzerinde durulan satır
+        var ids = _gridInvoices.SelectedRows.Cast<DataGridViewRow>()
+            .Where(r => r.Cells["Id"].Value != null && r.Cells["Id"].Value != DBNull.Value)
+            .Select(r => Convert.ToInt64(r.Cells["Id"].Value))
+            .Distinct().ToList();
+        if (ids.Count == 0 && _gridInvoices.CurrentRow?.Cells["Id"].Value is { } cur && cur != DBNull.Value)
+            ids.Add(Convert.ToInt64(cur));
+        if (ids.Count == 0) return;
+
+        var impact = InvoiceService.GetBulkDeleteImpact(ids);
+        string list = string.Join("\n", impact.Lines.Take(10).Select(l => $"• {l.InvoiceNumber} | {l.AccountName} | {l.GrandTotal:N2} ₺ | {l.ItemCount} kalem / {l.Quantity:#,0.##} miktar"));
+        if (impact.Lines.Count > 10) list += $"\n… ve {impact.Lines.Count - 10} fatura daha";
 
         var ask = MessageBox.Show(
-            $"⚠️ FATURAYI İPTAL ETME & GERİ ALMA (ROLLBACK) ONAYI\n\n" +
-            $"• Fatura No: {invNo}\n" +
-            $"• Tedarikçi/Cari: {accName}\n" +
-            $"• Toplam Tutar: {grandTotal:N2} ₺\n\n" +
-            $"Bu işlem onaylandığında:\n" +
-            $"1. Faturanın depoya soktuğu tüm ürün stok hareketleri silinir (ürün stok miktarları faturadan önceki eski haline döner).\n" +
-            $"2. Tedarikçi cari hesabına işlenen borç kaydı silinir (cari hesap bakiyesi faturadan önceki haline döner).\n" +
-            $"3. Fatura ve tüm kalemleri iptal edilir.\n\n" +
-            $"Bu faturayı tüm hareketleriyle birlikte geri almak ve iptal etmek istediğinizden emin misiniz?",
-            "Faturayı İptal Et ve Geri Al (Ters Kayıt)",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Warning
-        );
+            $"⚠️ {ids.Count} FATURA KALICI OLARAK SİLİNECEK (İPTAL & GERİ ALMA)\n\n{list}\n\n" +
+            $"Toplam: {impact.Lines.Sum(l => l.GrandTotal):N2} ₺ | {impact.Lines.Sum(l => l.Quantity):#,0.##} miktar\n\n" +
+            "Bu işlem onaylandığında:\n" +
+            "1. Faturaların depoya soktuğu stok hareketleri silinir (stoklar faturadan önceki haline döner).\n" +
+            "2. Tedarikçi carilerine işlenen borç ve ödeme kayıtları silinir.\n" +
+            "3. Faturalar, kalemleri ve arşivdeki PDF belgeleri silinir.\n" +
+            "İşlemden önce otomatik yedek alınır." +
+            (impact.ProductsGoingNegative > 0 ? $"\n\n⚠️ {impact.ProductsGoingNegative} ürünün stoğu EKSİYE düşecek (bu faturalarla gelen mal zaten satılmış)." : "") +
+            "\n\nDevam etmek istiyor musunuz?",
+            ids.Count > 1 ? "Toplu Fatura Silme" : "Faturayı İptal Et ve Geri Al",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+        if (ask != DialogResult.Yes) return;
 
-        if (ask == DialogResult.Yes)
+        Cursor = Cursors.WaitCursor;
+        var backup = CloudBackupService.ExecuteBackup(silent: true);
+        Cursor = Cursors.Default;
+        if (!backup.Success &&
+            MessageBox.Show("Silme öncesi yedek ALINAMADI:\n" + backup.Message + "\n\nYedeksiz devam edilsin mi?",
+                "Yedek Alınamadı", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            return;
+
+        int ok = 0, pdfs = 0;
+        var errors = new List<string>();
+        Cursor = Cursors.WaitCursor;
+        foreach (var line in impact.Lines)
         {
-            var result = InvoiceService.CancelAndRollbackInvoice(invId, rollbackMovements: true);
+            var result = InvoiceService.CancelAndRollbackInvoice(line.InvoiceId, rollbackMovements: true);
             if (result.Success)
             {
-                RefreshInvoices();
-                RefreshStockMovements();
-                RefreshAccountMovements();
-                RefreshDashboard();
-                MessageBox.Show(result.Message, "Fatura Başarıyla Geri Alındı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                ok++;
+                if (PdfArchiveService.DeleteArchivedPdf(line.PdfPath)) pdfs++;
             }
             else
             {
-                MessageBox.Show(result.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                errors.Add($"{line.InvoiceNumber}: {result.Message}");
             }
         }
+        Cursor = Cursors.Default;
+
+        RefreshInvoices();
+        RefreshProducts();
+        RefreshStockMovements();
+        RefreshAccountMovements();
+        RefreshAccounts();
+        RefreshDashboard();
+
+        MessageBox.Show(
+            $"✅ Silinen (geri alınan) fatura: {ok}\n📄 Arşivden silinen PDF: {pdfs}" +
+            (errors.Count > 0 ? "\n\n❌ Silinemeyenler (bu faturalarda hiçbir kayıt değişmedi):\n" + string.Join("\n", errors) : ""),
+            "Fatura Silme Sonucu", MessageBoxButtons.OK, errors.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
     }
 
     private void RefreshAuditLogs()
@@ -4794,19 +4826,106 @@ public class MainForm : Form
         }
         long id = GetSelectedId(_gridProducts);
         if (id < 0) return;
-        var prod = ProductService.GetById(id);
-        string name = prod != null ? $"{prod.Code} - {prod.Name}" : $"Ürün #{id}";
+        DeleteProductsWithProcedure(new List<long> { id });
+    }
 
-        if (MessageBox.Show($"Seçilen '{name}' ürünü pasif hale getirilsin mi?", "Ürün Silme Onayı", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+    /// <summary>
+    /// Ürün silme prosedürü: hareketi olmayan ürün kalıcı silinir. Hareketi olan ürün için etkisi gösterilir;
+    /// [Evet] yedek alıp stok kayıtlarıyla kalıcı siler (fatura satırları korunur), [Hayır] pasife alır, [İptal] vazgeçer.
+    /// </summary>
+    private void DeleteProductsWithProcedure(List<long> ids)
+    {
+        List<ProductDeletionImpact> impacts;
+        try
         {
-            string details = prod != null 
-                ? $"Kod: {prod.Code}, Ad: {prod.Name}, Kategori: {prod.Category}, Alış: {prod.PurchasePrice:N2} ₺, Kalan Stok: {prod.CurrentStock:N2}" 
-                : $"Id: {id}";
-
-            Database.Execute("UPDATE Products SET IsActive=0 WHERE Id=$id", ("$id", id));
-            AuditLogService.Log("Urun", "Silindi / Pasife Alındı", id, name, details, null, "Ürün kullanıcı tarafından pasife alındı");
-            RefreshAll();
+            impacts = ids.Select(ProductDeletionService.GetImpact).ToList();
         }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Ürün kayıtları incelenirken hata oluştu: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        var withRecords = impacts.Where(i => i.HasRecords).ToList();
+        var clean = impacts.Where(i => !i.HasRecords).ToList();
+        bool deleteWithRecords = false;
+
+        if (withRecords.Count == 0)
+        {
+            string names = string.Join("\n", clean.Take(10).Select(i => "• " + i.Name)) + (clean.Count > 10 ? $"\n… ve {clean.Count - 10} ürün daha" : "");
+            if (MessageBox.Show($"Aşağıdaki {clean.Count} ürünün hiç hareketi yok, kalıcı olarak silinecek:\n\n{names}\n\nOnaylıyor musunuz?",
+                    "Ürün Silme Onayı", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                return;
+        }
+        else
+        {
+            string list = string.Join("\n", withRecords.Take(10).Select(i =>
+                $"• {i.Name}\n    Kalan stok: {i.CurrentStock:#,0.##} | Stok hareketi: {i.StockMovementCount} | Satılan: {i.SoldQty:#,0.##} | Geçtiği fatura: {i.InvoiceCount}"));
+            if (withRecords.Count > 10) list += $"\n… ve {withRecords.Count - 10} ürün daha";
+
+            var choice = MessageBox.Show(
+                $"Seçilen ürünlerden {withRecords.Count} tanesinin kayıtları var:\n\n{list}\n\n" +
+                "Ne yapmak istersiniz?\n\n" +
+                "• [Evet] : KALICI SİL — ürün kartı, stok hareketleri, fiyat geçmişi ve varyantları silinir. " +
+                "Faturalardaki kalem satırları ve cari bakiyeler resmi belge olduğu için KORUNUR (ürün bağlantısı kaldırılır). " +
+                "Satış/stok raporlarından düşer. İşlemden önce otomatik yedek alınır.\n" +
+                "• [Hayır] : PASİFE AL (ARŞİVLE) — kayıtlar saklanır, ürün listelerde görünmez.\n" +
+                "• [İptal] : Vazgeç." +
+                (clean.Count > 0 ? $"\n\n(Hareketi olmayan {clean.Count} ürün her iki seçenekte de kalıcı silinir.)" : ""),
+                "Ürün Silme — Kayıtlar Ne Olsun?",
+                MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button3);
+
+            if (choice == DialogResult.Cancel) return;
+            deleteWithRecords = choice == DialogResult.Yes;
+
+            if (deleteWithRecords)
+            {
+                if (MessageBox.Show("Bu işlem GERİ ALINAMAZ. Seçilen ürünlerin stok kayıtları kalıcı olarak silinecek.\n\nEmin misiniz?",
+                        "Kalıcı Silme — Son Onay", MessageBoxButtons.YesNo, MessageBoxIcon.Stop, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                    return;
+
+                Cursor = Cursors.WaitCursor;
+                var backup = CloudBackupService.ExecuteBackup(silent: true);
+                Cursor = Cursors.Default;
+                if (!backup.Success &&
+                    MessageBox.Show("Silme öncesi yedek ALINAMADI:\n" + backup.Message + "\n\nYedeksiz devam edilsin mi?",
+                        "Yedek Alınamadı", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                    return;
+            }
+        }
+
+        int deleted = 0, archived = 0;
+        var errors = new List<string>();
+        Cursor = Cursors.WaitCursor;
+        foreach (var imp in impacts)
+        {
+            try
+            {
+                if (!imp.HasRecords || deleteWithRecords)
+                {
+                    ProductDeletionService.DeletePermanently(imp.ProductId);
+                    deleted++;
+                }
+                else
+                {
+                    ProductDeletionService.Archive(imp.ProductId);
+                    archived++;
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{imp.Name}: {ex.Message}");
+            }
+        }
+        Cursor = Cursors.Default;
+
+        MessageBox.Show(
+            (deleted > 0 ? $"✅ Kalıcı silinen ürün: {deleted}\n" : "") +
+            (archived > 0 ? $"📦 Pasife alınan (arşivlenen) ürün: {archived}\n" : "") +
+            (errors.Count > 0 ? "\n❌ Hata oluşanlar (bu ürünler için hiçbir kayıt silinmedi):\n" + string.Join("\n", errors) : ""),
+            "Ürün Silme Sonucu", MessageBoxButtons.OK, errors.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+
+        RefreshAll();
     }
 
     private void OpenFastProductEntry()
@@ -4867,27 +4986,7 @@ public class MainForm : Form
             return;
         }
 
-        var confirm = MessageBox.Show(
-            $"⚠️ DİKKAT: Seçilen {selectedIds.Count} adet ürünü silmek (arşive almak) istediğinize emin misiniz?\n\nBu işlem ürünleri listeden kaldıracak ve arşive taşıyacaktır.",
-            "Toplu Ürün Silme Onayı",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Warning,
-            MessageBoxDefaultButton.Button2
-        );
-
-        if (confirm != DialogResult.Yes) return;
-
-        var res = ProductService.DeleteProductsBulk(selectedIds);
-        if (res.Success)
-        {
-            MessageBox.Show(res.Message, "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            RefreshProducts();
-            RefreshDashboard();
-        }
-        else
-        {
-            MessageBox.Show(res.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        DeleteProductsWithProcedure(selectedIds);
     }
 
     private void DeleteStockMovementsBulkAction()
@@ -4974,27 +5073,7 @@ public class MainForm : Form
             return;
         }
 
-        var confirm = MessageBox.Show(
-            $"⚠️ DİKKAT: Seçilen {selectedIds.Count} adet cari hesabı silmek (pasife almak) istediğinize emin misiniz?",
-            "Toplu Cari Silme Onayı",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Warning,
-            MessageBoxDefaultButton.Button2
-        );
-
-        if (confirm != DialogResult.Yes) return;
-
-        var res = AccountService.DeleteAccountsBulk(selectedIds);
-        if (res.Success)
-        {
-            MessageBox.Show(res.Message, "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            RefreshAccounts();
-            RefreshDashboard();
-        }
-        else
-        {
-            MessageBox.Show(res.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        DeleteAccountsWithProcedure(selectedIds);
     }
 
     private void ViewProductHistory()
@@ -5140,19 +5219,110 @@ public class MainForm : Form
         }
         long id = GetSelectedId(_gridAccounts);
         if (id < 0) return;
-        var acc = AccountService.GetById(id);
-        string name = acc?.Name ?? $"Cari #{id}";
+        DeleteAccountsWithProcedure(new List<long> { id });
+    }
 
-        if (MessageBox.Show($"Seçilen '{name}' carisi pasif hale getirilsin (silinsin) mi?", "Cari Silme Onayı", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+    /// <summary>
+    /// Cari silme prosedürü: hareketi olmayan cari kalıcı silinir. Hareketi olan cari için etkisi (fatura, stok, bakiye)
+    /// gösterilir; [Evet] yedek alıp tüm kayıtlarıyla kalıcı siler, [Hayır] pasife alır (arşiv), [İptal] vazgeçer.
+    /// </summary>
+    private void DeleteAccountsWithProcedure(List<long> ids)
+    {
+        List<AccountDeletionImpact> impacts;
+        try
         {
-            string oldDetails = acc != null 
-                ? $"Ad: {acc.Name}, Tür: {acc.Type}, Tel: {acc.Phone}, Vergi No: {acc.TaxNumber}, Limit: {acc.BalanceLimit:N2} ₺, Bakiye: {acc.Balance:N2} ₺" 
-                : $"Id: {id}";
-
-            Database.Execute("UPDATE Accounts SET IsActive=0 WHERE Id=$id", ("$id", id));
-            AuditLogService.Log("Cari", "Silindi / Pasife Alındı", id, name, oldDetails, null, "Cari kullanıcı tarafından silindi/pasife alındı");
-            RefreshAll();
+            impacts = ids.Select(AccountDeletionService.GetImpact).ToList();
         }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Cari kayıtları incelenirken hata oluştu: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        var withRecords = impacts.Where(i => i.HasRecords).ToList();
+        var clean = impacts.Where(i => !i.HasRecords).ToList();
+        bool deleteWithRecords = false;
+
+        if (withRecords.Count == 0)
+        {
+            string names = string.Join("\n", clean.Take(10).Select(i => "• " + i.Name)) + (clean.Count > 10 ? $"\n… ve {clean.Count - 10} cari daha" : "");
+            if (MessageBox.Show($"Aşağıdaki {clean.Count} carinin hiç hareketi yok, kalıcı olarak silinecek:\n\n{names}\n\nOnaylıyor musunuz?",
+                    "Cari Silme Onayı", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                return;
+        }
+        else
+        {
+            string list = string.Join("\n\n", withRecords.Take(8).Select(i =>
+                $"• {i.Name}\n" +
+                $"    Fatura: {i.InvoiceCount} adet ({i.InvoiceTotal:N2} ₺) | Cari hareket: {i.AccountMovementCount} | Bakiye: {i.Balance:N2} ₺\n" +
+                $"    Stok etkisi: bu cariden gelen {i.PurchasedQty:#,0.##} adet stoktan DÜŞER, bu cariye satılan {i.SoldQty:#,0.##} adet stoğa GERİ DÖNER" +
+                (i.ProductsGoingNegative > 0 ? $"\n    ⚠️ {i.ProductsGoingNegative} ürünün stoğu EKSİYE düşecek (bu cariden gelen mal zaten satılmış)" : "")));
+            if (withRecords.Count > 8) list += $"\n\n… ve {withRecords.Count - 8} cari daha";
+
+            var choice = MessageBox.Show(
+                $"Seçilen carilerden {withRecords.Count} tanesinin kayıtları var:\n\n{list}\n\n" +
+                "Ne yapmak istersiniz?\n\n" +
+                "• [Evet] : TÜM KAYITLARIYLA KALICI SİL — faturaları, stok ve cari hareketleri, fatura PDF'leri sistemden tamamen silinir. " +
+                "Ürün kartları kalır, stoklar yeniden hesaplanır. İşlemden önce otomatik yedek alınır.\n" +
+                "• [Hayır] : PASİFE AL (ARŞİVLE) — kayıtlar saklanır, cari listelerde görünmez.\n" +
+                "• [İptal] : Vazgeç." +
+                (clean.Count > 0 ? $"\n\n(Hareketi olmayan {clean.Count} cari her iki seçenekte de kalıcı silinir.)" : ""),
+                "Cari Silme — Kayıtlar Ne Olsun?",
+                MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button3);
+
+            if (choice == DialogResult.Cancel) return;
+            deleteWithRecords = choice == DialogResult.Yes;
+
+            if (deleteWithRecords)
+            {
+                if (MessageBox.Show("Bu işlem GERİ ALINAMAZ. Seçilen carilerin tüm faturaları ve hareketleri kalıcı olarak silinecek.\n\nEmin misiniz?",
+                        "Kalıcı Silme — Son Onay", MessageBoxButtons.YesNo, MessageBoxIcon.Stop, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                    return;
+
+                Cursor = Cursors.WaitCursor;
+                var backup = CloudBackupService.ExecuteBackup(silent: true);
+                Cursor = Cursors.Default;
+                if (!backup.Success &&
+                    MessageBox.Show("Silme öncesi yedek ALINAMADI:\n" + backup.Message + "\n\nYedeksiz devam edilsin mi?",
+                        "Yedek Alınamadı", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                    return;
+            }
+        }
+
+        int deleted = 0, archived = 0, invoices = 0, pdfs = 0;
+        var errors = new List<string>();
+        Cursor = Cursors.WaitCursor;
+        foreach (var imp in impacts)
+        {
+            try
+            {
+                if (!imp.HasRecords || deleteWithRecords)
+                {
+                    var r = AccountDeletionService.DeletePermanently(imp.AccountId);
+                    deleted++;
+                    invoices += r.Invoices;
+                    pdfs += r.PdfFiles;
+                }
+                else
+                {
+                    AccountDeletionService.Archive(imp.AccountId);
+                    archived++;
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{imp.Name}: {ex.Message}");
+            }
+        }
+        Cursor = Cursors.Default;
+
+        MessageBox.Show(
+            (deleted > 0 ? $"✅ Kalıcı silinen cari: {deleted}" + (invoices > 0 ? $" (geri alınan fatura: {invoices}, silinen PDF: {pdfs})" : "") + "\n" : "") +
+            (archived > 0 ? $"📦 Pasife alınan (arşivlenen) cari: {archived}\n" : "") +
+            (errors.Count > 0 ? "\n❌ Hata oluşanlar (bu cariler için hiçbir kayıt silinmedi):\n" + string.Join("\n", errors) : ""),
+            "Cari Silme Sonucu", MessageBoxButtons.OK, errors.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+
+        RefreshAll();
     }
 
     private void ViewAccountStatement()
@@ -5603,7 +5773,7 @@ WHERE m.Id = $id", ("$id", id));
         }
 
         var ask1 = MessageBox.Show(
-            "⚠️ DİKKAT: Veritabanındaki TÜM FATURALAR, STOK HAREKETLERİ, ÜRÜN KARTLARI, CARİ HESAPLAR VE KASA İŞLEMLERİ KALICI OLARAK SİLİNECEKTİR!\n\n" +
+            "⚠️ DİKKAT: Veritabanındaki TÜM FATURALAR (arşivdeki PDF'ler dahil), STOK HAREKETLERİ, ÜRÜN KARTLARI, CARİ HESAPLAR VE KASA İŞLEMLERİ KALICI OLARAK SİLİNECEKTİR!\n\n" +
             "Tüm ID numaraları 1'den başlayacak şekilde sıfırlanacaktır.\n\n" +
             "Bu işlem geri alınamaz! Devam etmek istiyor musunuz?",
             "TÜM VERİLERİ SIFIRLAMA ONAYI (1/2)",
@@ -5623,6 +5793,14 @@ WHERE m.Id = $id", ("$id", id));
         if (ask2 != DialogResult.Yes) return;
 
         Cursor = Cursors.WaitCursor;
+        var backup = CloudBackupService.ExecuteBackup(silent: true);
+        Cursor = Cursors.Default;
+        if (!backup.Success &&
+            MessageBox.Show("Sıfırlama öncesi yedek ALINAMADI:\n" + backup.Message + "\n\nYedeksiz devam edilsin mi?",
+                "Yedek Alınamadı", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            return;
+
+        Cursor = Cursors.WaitCursor;
         try
         {
             Database.ResetAllDataAndReseed();
@@ -5630,7 +5808,8 @@ WHERE m.Id = $id", ("$id", id));
                 "Veritabanı başarıyla sıfırlandı!\n\n" +
                 "• Tüm fatura, ürün, cari ve kasa kayıtları silindi.\n" +
                 "• Tüm ID sayaçları 1'e çekildi.\n" +
-                "• Kullanıcılar da silindi: program yeniden başlatıldığında yönetici şifresini yeniden belirlemeniz istenecek.\n" +
+                "• Arşivlenmiş fatura PDF'leri silindi.\n" +
+                "• Kullanıcılar silindi (süper kullanıcı korundu): program yeniden başlatıldığında yönetici şifresini yeniden belirlemeniz istenecek.\n" +
                 "• Varsayılan depo: Merkez Depo (ID: 1)\n\n" +
                 "Artık sıfırdan veri girişine başlayabilirsiniz.",
                 "Fabrika Ayarlarına Dönüldü",
